@@ -1,0 +1,188 @@
+<html lang="ko">
+    <head>
+        <meta charset="ko">
+        <title>html 과제</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+           ul,li{
+          list-style: none; 
+          padding : 5px;
+            }
+            #co{
+                 text-align: center;
+                 width:100%;
+                 height : 100px;
+                 background: #222;
+                 color: rgb(255, 255,255);
+                 line-height: 100px;
+            }
+            body{
+                background-color: gray;
+            }
+        .box1{
+        border : 2px solid black;
+        color: #fff;
+        text-decoration: none; 
+        padding: 10px 20px;
+        margin:10px ;
+        background-color: lightblue;
+      }      
+      .box1 {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.box1 div {
+  flex-basis: calc(33.33% - 20px);
+  margin-right: 10px;
+}
+
+.box1 div:last-child {
+  margin-right: 0;
+}
+
+.box1 h3 {
+  margin-right: 10px;
+}
+  #left-side{
+        width : 250px;
+        height : 500px;
+        background-color: #e9e9e9;
+        float : left;
+  }
+  img {
+  width: 250px;
+  height: 500px;
+  object-fit: cover;
+}
+
+ </style>
+    </head>
+    <body>
+       <div>
+        <h1 id="co">수업내용</h1>
+        <aside id="left-side"><img src="/image/joint..jpg" alt="수업내용" ></aside>
+        <div class="box1">
+            <div>
+              <h3>3주차 수업내용</h3>
+              <ul>
+                <li>
+                  <a href="/week/week3.html">3-1주차 시간표 만들기</a>
+                </li>
+                <li>
+                  <a href="/week/week3-2.html">3-2주차 수강과목</a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>4주차 수업내용</h3>
+              <ul>
+                <li>
+                  <a href="/week/week4-2.html">4주차과제 </a>
+                </li>
+                <li>
+                  <a href="/week/week4-1.html">4-1주차</a>
+                </li>
+                <li >
+                  <a href="/week/week4-5.html">4-2주차</a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>5주차 수업내용</h3>
+              <ul>
+                <li>
+                  <a href="/week/c-week5.html">5주차</a>
+                </li>
+                <li>
+                  <a href="/week/week5-2.html">프런트엔드 개발자 지원서</a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>6주차 수업내용</h3>
+              <ul>
+                <li>
+                  <a href="/week/week6.html"> li 에 대해서</a>
+                </li>
+                <li>
+                  <a href="/week/week6-5.html">  7장 마무리문제 </a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>중간고사</h3>
+              <ul>
+                <li>
+                  <a href="/week/week7.html">시험 문제 유형</a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>8주차 수업내용</h3>
+              <ul>
+                <li>
+                  <a href="/week/week8.html">margin,padding 태그 </a>
+                </li>
+                <li>
+                  <a href="/week/week8-3.html">웹요소 위치 정하기</a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3>9주차 수업내용</h3>
+              <li>
+                <a href="/week/week9-1.html">2단 레이아웃 만들기</a>
+              </li>
+            </div>
+            <div>
+              <h3>10주차 수업내용</h3>
+              <li>
+                <a href="/week/week10-1.html">연결 선택자</a>
+              </li>
+              <li>
+                <a href="/week/week10-2.html">폼에서 레이블 요소 정렬하기</a>
+              </li>
+            </div>
+            <div>
+              <h3>11주차 수업내용</h3>
+              <li>
+                <a href="/week/11-1.html">가상클래스 선택자</a>
+              </li>
+              <li>
+                <a href="/week/11-2.html">Transition</a>
+              </li>
+            </div>
+            <div>
+              <h3>12주차 수업내용</h3>
+              <li>
+                <a href="/week/week12.html">animation</a>
+              </li>
+              <li>
+                <a href="/week/week12-1.html">플렉스 항목 배치하기</a>
+              </li>
+            </div>
+            <div>
+              <h3>13주차 수업내용</h3>
+              <li>
+                <a href="/week/week13.html">JavaScript</a>
+              </li>
+            </div>
+            <div>
+              <h3>14주차 수업내용</h3>
+              <li>
+                <a href="/week/week14.html">javaScript2</a>
+              </li>
+              <li>
+                <a href="/week/week-14-1.html">기말고사 리뷰</a>
+              </li>
+            </div>
+            <div>
+              <h3>연습</h3>
+              <li>
+                <a href="/week/web.html">웹만들기</a>
+              </li>
+            </div>
+        </div>
+          </body>
+</html>
