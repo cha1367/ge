@@ -420,89 +420,132 @@ elif page == "🎂  연령별 분포":
 # ══════════════════════════════════════════
 # 6. 임금 — 박스플롯 + 산점도
 # ══════════════════════════════════════════
+# ── 임금 페이지 (대체 코드) ─────────────────────────────
 elif page == "💰  임금 비교":
     st.title("💰 직종별 평균 임금 비교")
     st.markdown("---")
 
-    df, items = load_wage()
-    total = df[df.iloc[:,0]=='전체근로자'].copy()
-    wage_col = total.columns[74] if len(total.columns)>74 else total.columns[-7]
-    wdata = total[[total.columns[1], wage_col]].copy()
-    wdata.columns = ['직종','월임금(천원)']
-    wdata['월임금(천원)'] = pd.to_numeric(wdata['월임금(천원)'], errors='coerce')
-    wdata = wdata.dropna()
+    # load_wage()는 원래대로 df, items 반환 (items: 첫 행 텍스트 리스트)
+    df_wage_raw, items = load_wage()
 
-    WLABEL = {
-        '전직종':'전직종','관리자(1)':'관리자','전문가 및 관련종사자(2)':'전문가',
-        '사무 종사자(3)':'사무종사자','서비스 종사자(4)':'서비스',
-        '판매 종사자(5)':'판매','농림·어업 숙련 종사자(6)':'농림어업',
-        '기능원 및 관련기능종사자(7)':'기능원','장치·기계 조작 및 조립종사자(8)':'기계조작',
-        '단순노무 종사자(9)':'단순노무',
-    }
-    wdata['직종'] = wdata['직종'].map(WLABEL).fillna(wdata['직종'])
-    target = ['관리자','전문가','사무종사자','기능원','기계조작','단순노무']
-    wdf = wdata[wdata['직종'].isin(target)].copy()
-    wdf['직군'] = wdf['직종'].apply(lambda x:'화이트칼라' if x in ['관리자','전문가','사무종사자'] else '블루칼라')
+    # 1) items(헤더 설명)에서 '월임금' 관련 컬럼명 자동 탐색
+    wage_item_candidates = [it for it in items if it and '월임금' in it]
+    if not wage_item_candidates:
+        st.error("임금 관련 컬럼을 자동으로 찾지 못했습니다. CSV의 헤더(첫 행)에 '월임금' 표기가 있는지 확인해주세요.")
+    else:
+        # 2) 연도별로 '월임금' 컬럼을 찾아 long 포맷으로 정리
+        # df_wage_raw: 첫 행(헤더 설명) 제거된 상태(원래 load_wage 구현에 따라)
+        # 첫 컬럼은 직종명(예: 전체근로자, 관리자(1) 등)
+        idx_job = df_wage_raw.columns[0]
+        # build mapping: column index -> item description from items
+        col_to_item = {col: items[i] if i < len(items) else '' for i, col in enumerate(df_wage_raw.columns)}
+        # find columns whose item description contains '월임금'
+        wage_cols = [col for col, it in col_to_item.items() if it and '월임금' in it]
+        # fallback: if none found, try columns whose header text contains '월임금' (defensive)
+        if not wage_cols:
+            wage_cols = [c for c in df_wage_raw.columns if '월임금' in str(c)]
 
-    # 연도별 임금 데이터 구성 (다중 연도)
-    years = ['2020','2021','2022','2023','2024','2025']
-    all_wage = []
-    for i, yr in enumerate(years):
-        base_idx = 2 + i*13
-        if base_idx+7 < len(df.columns):
-            wc = df.columns[base_idx+7]
-            sub = df[df.iloc[:,0]=='전체근로자'][[df.columns[1], wc]].copy()
-            sub.columns = ['직종','월임금']
-            sub['월임금'] = pd.to_numeric(sub['월임금'], errors='coerce')
-            sub['직종'] = sub['직종'].map(WLABEL).fillna(sub['직종'])
-            sub = sub[sub['직종'].isin(target)].dropna()
-            sub['연도'] = yr
-            sub['직군'] = sub['직종'].apply(lambda x:'화이트칼라' if x in ['관리자','전문가','사무종사자'] else '블루칼라')
-            all_wage.append(sub)
-    wage_all = pd.concat(all_wage) if all_wage else wdf.rename(columns={'월임금(천원)':'월임금'})
+        # assemble long dataframe
+        long_rows = []
+        for col in wage_cols:
+            # try to extract year from the item text or column name (4-digit)
+            it = col_to_item.get(col, '')
+            year_search = None
+            import re
+            m = re.search(r'(\d{4})', str(it))
+            if m:
+                year_search = m.group(1)
+            else:
+                m2 = re.search(r'(\d{4})', str(col))
+                if m2:
+                    year_search = m2.group(1)
+            # default: unknown year -> leave NaN
+            year = year_search if year_search else None
 
-    w_avg = wdf[wdf['직군']=='화이트칼라']['월임금(천원)'].mean()
-    b_avg = wdf[wdf['직군']=='블루칼라']['월임금(천원)'].mean()
+            tmp = df_wage_raw[[idx_job, col]].copy()
+            tmp.columns = ['직종', '월임금']
+            tmp['월임금'] = pd.to_numeric(tmp['월임금'].astype(str).str.replace(',', '').str.strip(), errors='coerce')
+            tmp['연도'] = year
+            long_rows.append(tmp)
 
-    c1,c2,c3 = st.columns(3)
-    c1.metric("🔵 화이트칼라 평균", f"{w_avg:,.0f}천원/월")
-    c2.metric("🔴 블루칼라 평균", f"{b_avg:,.0f}천원/월")
-    c3.metric("월 임금 격차", f"{w_avg-b_avg:,.0f}천원")
+        wage_all = pd.concat(long_rows, ignore_index=True)
+        # drop rows without 직종 or 월임금
+        wage_all = wage_all.dropna(subset=['직종', '월임금']).reset_index(drop=True)
 
-    st.markdown("---")
-    col1, col2 = st.columns(2)
+        # 표기 통일: 파일은 '천원' 단위로 되어있으므로 축에 '천원' 표기
+        # 직종명 정리(원래 코드의 WLABEL 사용)
+        WLABEL = {
+            '전직종':'전직종','관리자(1)':'관리자','전문가 및 관련종사자(2)':'전문가',
+            '사무 종사자(3)':'사무종사자','서비스 종사자(4)':'서비스',
+            '판매 종사자(5)':'판매','농림·어업 숙련 종사자(6)':'농림어업',
+            '기능원 및 관련기능종사자(7)':'기능원','장치·기계 조작 및 조립종사자(8)':'기계조작',
+            '단순노무 종사자(9)':'단순노무',
+        }
+        wage_all['직종'] = wage_all['직종'].map(WLABEL).fillna(wage_all['직종'])
 
-    with col1:
-        st.markdown("#### 연도별 직군 평균 임금 추이 (Line Chart)")
-        line_data = wage_all.groupby(['연도','직군'])['월임금'].mean().reset_index()
-        fig = px.line(line_data, x='연도', y='월임금', color='직군',
-                      color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
-                      markers=True, text='월임금')
-        fig.update_traces(texttemplate='%{text:,.0f}', textposition='top center',
-                          textfont=dict(color='#e6edf3', size=10))
-        fig.update_layout(**LAYOUT, height=360, yaxis_title='월평균 임금 (천원)')
-        st.plotly_chart(fig, use_container_width=True)
+        # 직군(화이트/블루) 라벨 추가
+        wage_all['직군'] = wage_all['직종'].apply(lambda x: '화이트칼라' if x in ['관리자','전문가','사무종사자'] else '블루칼라')
 
-    with col2:
-        st.markdown("#### 직종별 임금 + 직군 평균선 (Combo Chart)")
-        wdf_s = wdf.sort_values('월임금(천원)')
-        fig2 = go.Figure()
-        colors = [CW if x in ['관리자','전문가','사무종사자'] else CB for x in wdf_s['직종']]
-        fig2.add_trace(go.Bar(x=wdf_s['직종'], y=wdf_s['월임금(천원)'],
-                              marker_color=colors, name='월임금',
-                              text=wdf_s['월임금(천원)'],
-                              texttemplate='%{text:,.0f}', textposition='outside',
-                              textfont=dict(color='#e6edf3')))
-        fig2.add_hline(y=w_avg, line_dash='dash', line_color=CW, line_width=1.5,
-                       annotation_text=f'화이트 평균 {w_avg:,.0f}',
-                       annotation_font_color=CW)
-        fig2.add_hline(y=b_avg, line_dash='dash', line_color=CB, line_width=1.5,
-                       annotation_text=f'블루 평균 {b_avg:,.0f}',
-                       annotation_font_color=CB)
-        fig2.update_layout(**LAYOUT, height=360, xaxis_title='', yaxis_title='월임금 (천원)')
-        st.plotly_chart(fig2, use_container_width=True)
+        # 연도가 None인 경우 제거(또는 필요시 'unknown'으로 처리)
+        wage_all = wage_all.dropna(subset=['연도']).copy()
+        wage_all['연도'] = wage_all['연도'].astype(str)
 
-    insight(f"전체 평균 기준 격차 {w_avg-b_avg:,.0f}천원 — 단, 대기업 생산직은 중소기업 사무직보다 높을 수 있습니다")
+        # 요약 통계 (최근 연도 기준)
+        latest_year = wage_all['연도'].sort_values().unique()[-1]
+        latest_df = wage_all[wage_all['연도'] == latest_year]
+        w_avg = latest_df[latest_df['직군']=='화이트칼라']['월임금'].mean()
+        b_avg = latest_df[latest_df['직군']=='블루칼라']['월임금'].mean()
+
+        c1,c2,c3 = st.columns(3)
+        c1.metric("🔵 화이트칼라 평균", f"{w_avg:,.0f}천원/월")
+        c2.metric("🔴 블루칼라 평균", f"{b_avg:,.0f}천원/월")
+        c3.metric("월 임금 격차", f"{(w_avg-b_avg):,.0f}천원")
+
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+
+        # 왼쪽: 연도별 직군 평균 추이 (라인)
+        with col1:
+            st.markdown("#### 연도별 직군 평균 임금 추이 (천원 단위)")
+            line_data = wage_all.groupby(['연도','직군'])['월임금'].mean().reset_index()
+            # 정렬된 연도 순서 보장
+            line_data['연도'] = pd.Categorical(line_data['연도'], categories=sorted(line_data['연도'].unique()), ordered=True)
+            fig = px.line(line_data, x='연도', y='월임금', color='직군',
+                          color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                          markers=True)
+            fig.update_layout(**LAYOUT, height=360, yaxis_title='월평균 임금 (천원)')
+            fig.update_traces(mode='lines+markers')
+            st.plotly_chart(fig, use_container_width=True)
+
+        # 오른쪽: 박스플롯(직종별 분포) + 평균선
+        with col2:
+            st.markdown("#### 직종별 임금 분포 (박스플롯) — 최근 연도 기준")
+            box_df = latest_df.copy()
+            # order by median for 보기 좋게 정렬
+            order = box_df.groupby('직종')['월임금'].median().sort_values(ascending=False).index.tolist()
+            fig2 = px.box(box_df, x='월임금', y='직종', color='직군',
+                          category_orders={'직종': order},
+                          color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                          points='outliers', orientation='h')
+            # 평균선 추가 (plotly express -> update_layout with shapes)
+            shapes = []
+            if not np.isnan(w_avg):
+                shapes.append(dict(type='line', x0=w_avg, x1=w_avg, y0=-0.5, y1=len(order)-0.5,
+                                   line=dict(color=CW, dash='dash', width=1.5)))
+            if not np.isnan(b_avg):
+                shapes.append(dict(type='line', x0=b_avg, x1=b_avg, y0=-0.5, y1=len(order)-0.5,
+                                   line=dict(color=CB, dash='dash', width=1.5)))
+            fig2.update_layout(**LAYOUT, height=520, shapes=shapes, xaxis_title='월임금 (천원)')
+            st.plotly_chart(fig2, use_container_width=True)
+
+        st.markdown("---")
+        # 추가 인사이트
+        # 상위/하위 직종(중앙값 기준)
+        medians = latest_df.groupby('직종')['월임금'].median().sort_values(ascending=False)
+        top1 = medians.index[0]
+        bot1 = medians.index[-1]
+        insight(f"최근 연도({latest_year}) 중앙값 기준 최고 직종: **{top1}**, 최저 직종: **{bot1}**. 평균 격차는 {int(w_avg-b_avg):,}천원입니다.")
+
 
 # ══════════════════════════════════════════
 # 7. 결론 — 요약 카드 + 슬로프 그래프
