@@ -59,7 +59,7 @@ def insight(text, color='blue'):
 # ── 데이터 로드 ───────────────────────────
 @st.cache_data
 def load_yearly():
-    df = pd.read_csv("data/직업별_취업자_연도별.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/직업별_취업자_연도별.csv.csv", encoding='utf-8-sig')
     year_cols = [c for c in df.columns if c.isdigit() and len(c)==4]
     return df, year_cols, df.columns[0]
 
