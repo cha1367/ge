@@ -59,13 +59,13 @@ def insight(text, color='blue'):
 # ── 데이터 로드 ───────────────────────────
 @st.cache_data
 def load_yearly():
-    df = pd.read_csv("data/직업별_취업자_연도별.csv.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/직업별_취업자_연도별.csv", encoding='utf-8-sig')
     year_cols = [c for c in df.columns if c.isdigit() and len(c)==4]
     return df, year_cols, df.columns[0]
 
 @st.cache_data
 def load_region():
-    df = pd.read_csv("data/시도별_직업별.csv.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/시도별_직업별.csv", encoding='utf-8-sig')
     df = df.iloc[1:].reset_index(drop=True)
     df.columns.values[0] = '행정구역'
     df.columns.values[1] = '직업별'
@@ -73,13 +73,13 @@ def load_region():
 
 @st.cache_data
 def load_gender():
-    df = pd.read_csv("data/성별_직업별.csv.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/성별_직업별.csv", encoding='utf-8-sig')
     year_cols = [c for c in df.columns if c.isdigit() and len(c)==4]
     return df, year_cols
 
 @st.cache_data
 def load_age():
-    df = pd.read_csv("data/직업별_학력별.csv.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/직업별_학력별.csv", encoding='utf-8-sig')
     df = df.iloc[1:].reset_index(drop=True)
     df.columns.values[0] = '직업별'
     cols_2024 = [c for c in df.columns if '2024.1/2' in str(c)]
@@ -87,7 +87,7 @@ def load_age():
 
 @st.cache_data
 def load_wage():
-    df = pd.read_csv("data/직종별_임금.csv.csv", encoding='utf-8-sig')
+    df = pd.read_csv("data/직종별_임금.csv", encoding='utf-8-sig')
     items = df.iloc[0].tolist()
     df = df.iloc[1:].reset_index(drop=True)
     return df, items
