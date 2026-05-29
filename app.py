@@ -1,11 +1,10 @@
-# app.py
+# app.py (전체 수정본)
+import re
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import re
-
 
 st.set_page_config(page_title="화이트칼라 · 블루칼라 분석", page_icon="📊", layout="wide")
 
@@ -285,7 +284,6 @@ elif page == "👥 성별":
 
         st.markdown("---")
         st.markdown("#### 직종별 남/여 구성 (스택형 막대)")
-        # LABEL_G은 데이터에 맞게 조정 필요
         LABEL_G = {
             '1 관리자':'관리자','2 전문가 및 관련 종사자':'전문가','3 사무 종사자':'사무종사자',
             '7 기능원 및 관련 기능종사자':'기능원','8 장치,기계조작 및 조립종사자':'기계조작','9 단순노무 종사자':'단순노무'
@@ -308,13 +306,13 @@ elif page == "👥 성별":
             insight("남성은 블루칼라 비중이 높고, 여성은 화이트칼라 비중이 상대적으로 높습니다.", 'red')
         else:
             st.info("직종별 성별 데이터가 충분하지 않습니다. CSV 구조를 확인하세요.")
+
 # -------------------------
 # 5. 연령별
 # -------------------------
 elif page == "🎂 연령별":
     st.title("🎂 연령별 직종 분포")
 
-    # 데이터 로드: load_age() 사용
     df_age = load_age()
     if df_age is None or df_age.empty:
         st.error("연령별 데이터가 없습니다. df_age를 로드하거나 파일을 확인하세요.")
@@ -362,7 +360,11 @@ elif page == "🎂 연령별":
             top_jobs = df_age_norm.sort_values('총계', ascending=False).head(top_n)
 
             st.markdown("#### 상위 직종 표 (총계 기준)")
-            st.dataframe(top_jobs[[job_col, '총계'] + age_cols].reset_index(drop=True).style.format("{:,.0f}"))
+            # 안전 출력: 숫자형 보장 후 스타일 적용
+            display_df = top_jobs[[job_col, '총계'] + age_cols].copy()
+            for c in age_cols + ['총계']:
+                display_df[c] = pd.to_numeric(display_df[c], errors='coerce').fillna(0)
+            st.dataframe(display_df.reset_index(drop=True).style.format("{:,.0f}"))
 
             # --- 5. 누적 막대: 직종별 연령 분포 (절대값) ---
             st.markdown("#### 직종별 연령 분포 (절대값, 상위 직종)")
@@ -423,39 +425,30 @@ elif page == "🎂 연령별":
 # 6. 임금 (업로드된 CSV 구조용 완전 대체 블록)
 # -------------------------
 elif page == "💰 임금":
-    import re
     st.title("💰 직종별 평균 임금 비교 (2020–2025)")
 
-    # 데이터 로드 (load_wage 함수가 이미 정의되어 있음)
-    df_mgr = load_wage(include_manager=True)    # 관리자 포함 파일
-    df_nomgr = load_wage(include_manager=False) # 관리자 미포함 파일
+    df_mgr = load_wage(include_manager=True)
+    df_nomgr = load_wage(include_manager=False)
 
-    # 파일 존재 확인
     if (df_mgr is None or df_mgr.empty) and (df_nomgr is None or df_nomgr.empty):
         st.error("임금 관련 CSV 파일을 불러올 수 없습니다. data/ 폴더에 관리자 포함/미포함 CSV를 확인하세요.")
     else:
-        # --- 1) 연도 컬럼 명시 (업로드된 파일은 2020..2025 컬럼이 있음) ---
         year_labels = ['2020','2021','2022','2023','2024','2025']
-        # 실제 컬럼명 매핑: 파일에는 숫자형 컬럼(정수)으로 들어있을 수 있으므로 문자열/정수 모두 처리
         def find_col(df, y):
             for c in df.columns:
                 if str(c).strip() == str(y) or re.search(r'\b' + str(y) + r'\b', str(c)):
                     return c
             return None
 
-        year_cols = []
         sample_df = df_mgr if (df_mgr is not None and not df_mgr.empty) else df_nomgr
-        for y in year_labels:
-            c = find_col(sample_df, y)
-            if c is not None:
-                year_cols.append(c)
+        year_cols = [find_col(sample_df, y) for y in year_labels]
+        year_cols = [c for c in year_cols if c is not None]
 
         if not year_cols:
             st.error("연도 컬럼(2020~2025)을 찾지 못했습니다. CSV 헤더를 확인하세요.")
         else:
             st.write("사용 연도 컬럼:", year_cols)
 
-            # --- 2) 정규화 유틸 (숫자형 보장) ---
             def normalize_col(df, col):
                 s = df[col].astype(str).fillna('')
                 s = s.str.replace(',', '')
@@ -466,27 +459,24 @@ elif page == "💰 임금":
                 s = s.replace({'-':'', '—':'', '–':'', '…':'', 'N/A':'', 'na':'', '': np.nan})
                 return pd.to_numeric(s, errors='coerce')
 
-            # 정규화 적용 (원본 덮어쓰기 허용)
             for c in year_cols:
                 if df_mgr is not None and c in df_mgr.columns:
                     df_mgr[c] = normalize_col(df_mgr, c)
                 if df_nomgr is not None and c in df_nomgr.columns:
                     df_nomgr[c] = normalize_col(df_nomgr, c)
 
-            # --- 3) 직종 컬럼 확인 (첫 컬럼이 '직종별' 형태) ---
+            # 직종 컬럼 찾기
             job_col = None
             if df_mgr is not None and not df_mgr.empty:
-                job_col = df_mgr.columns[1] if df_mgr.columns[0] in ['고용형태','"고용형태"'] else df_mgr.columns[1] if len(df_mgr.columns)>1 else df_mgr.columns[0]
-                # uploaded CSV uses columns: "고용형태","직종별",2020...
-                # ensure we pick the '직종별' column
-                # try to find column name containing '직종' if present
                 for c in df_mgr.columns[:3]:
-                    if '직종' in str(c):
+                    if '직종' in str(c) or '직업' in str(c):
                         job_col = c
                         break
+                if job_col is None:
+                    job_col = df_mgr.columns[1] if len(df_mgr.columns)>1 else df_mgr.columns[0]
             elif df_nomgr is not None and not df_nomgr.empty:
                 for c in df_nomgr.columns[:3]:
-                    if '직종' in str(c):
+                    if '직종' in str(c) or '직업' in str(c):
                         job_col = c
                         break
 
@@ -495,7 +485,6 @@ elif page == "💰 임금":
             else:
                 st.write("직종 컬럼:", job_col)
 
-                # --- 4) 화이트/블루 패턴 (업로드된 직종명에 맞춤) ---
                 white_pattern = r'관리자|전문가|전문직|사무'
                 blue_pattern  = r'기능원|기능|기계|기계조작|장치|조작|단순|노무|조립'
 
@@ -505,13 +494,11 @@ elif page == "💰 임금":
                     except Exception:
                         return pd.Series([False]*len(df), index=df.index)
 
-                # --- 5) 연도별 집계(합계 또는 평균) 생성 ---
                 trend = []
                 for c in year_cols:
                     w_sum = df_mgr.loc[mask(df_mgr, white_pattern), c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
                     b_sum = df_mgr.loc[mask(df_mgr, blue_pattern), c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
                     total = df_mgr[c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
-                    # 단위: 천원(파일 기준)
                     trend.append({'연도': str(int(re.search(r'\d{4}', str(c)).group(0))) if re.search(r'\d{4}', str(c)) else str(c),
                                   '화이트합계': float(w_sum or 0),
                                   '블루합계': float(b_sum or 0),
@@ -519,10 +506,7 @@ elif page == "💰 임금":
 
                 trend_df = pd.DataFrame(trend)
 
-                # --- 6) 관리자 포함/제외 평균(최신 연도 기준) ---
                 latest_col = year_cols[-1]
-                # 관리자 포함: df_mgr에서 '관리자(1)' 등 매칭
-                mgr_mask = df_mgr[job_col].astype(str).str.contains(r'관리자', na=False) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
                 white_mask_mgr = mask(df_mgr, white_pattern) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
                 white_mask_nom = mask(df_nomgr, white_pattern) if (df_nomgr is not None and latest_col in df_nomgr.columns) else pd.Series([False])
                 blue_mask_mgr = mask(df_mgr, blue_pattern) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
@@ -531,16 +515,20 @@ elif page == "💰 임금":
                 white_no_mgr = df_nomgr.loc[white_mask_nom, latest_col].mean() if (df_nomgr is not None and latest_col in df_nomgr.columns) else np.nan
                 blue_avg = df_mgr.loc[blue_mask_mgr, latest_col].mean() if (df_mgr is not None and latest_col in df_mgr.columns) else np.nan
 
-                # 메트릭 (단위: 천원/월)
                 c1,c2,c3,c4 = st.columns(4)
                 c1.metric("화이트칼라 평균(관리자 포함)", f"{white_all:,.0f}천원/월" if not np.isnan(white_all) else "데이터 없음")
                 c2.metric("화이트칼라 평균(관리자 제외)", f"{white_no_mgr:,.0f}천원/월" if not np.isnan(white_no_mgr) else "데이터 없음")
                 c3.metric("블루칼라 평균", f"{blue_avg:,.0f}천원/월" if not np.isnan(blue_avg) else "데이터 없음")
-                c4.metric("임금 격차(관리자 제외)", f"{(white_no_mgr - blue_avg):,.0f}천원" if (not np.isnan(white_no_mgr) and not np.isnan(blue_avg)) else "데이터 없음")
+                if not np.isnan(white_no_mgr) and not np.isnan(blue_avg):
+                    gap = white_no_mgr - blue_avg
+                    c4.metric("임금 격차(관리자 제외)", f"{gap:,.0f}천원", f"{(gap/blue_avg*100):.1f}%")
+                else:
+                    c4.metric("임금 격차(관리자 제외)", "데이터 없음")
 
                 st.markdown("---")
+                st.markdown(f"**요약 (한 문장)**: {int(latest_col) if re.search(r'\\d{4}', str(latest_col)) else latest_col}년 기준, 화이트칼라 평균은 **{'' if np.isnan(white_all) else f'{white_all:,.0f}천원/월'}**이며, 블루칼라 평균은 **{'' if np.isnan(blue_avg) else f'{blue_avg:,.0f}천원/월'}**입니다.")
+                st.caption("데이터 단위: 천원/월 · 출처: 업로드된 CSV · 전처리: 쉼표·단위 제거")
 
-                # --- 7) 연도별 추이 (라인 차트) ---
                 st.markdown("#### 연도별 합계 추이 (화이트 vs 블루)")
                 fig_line = go.Figure()
                 fig_line.add_trace(go.Scatter(x=trend_df['연도'], y=trend_df['화이트합계'], mode='lines+markers', name='화이트칼라', line=dict(color=CW)))
@@ -548,7 +536,6 @@ elif page == "💰 임금":
                 fig_line.update_layout(**LAYOUT, xaxis_title='연도', yaxis_title='월임금 합계 (단위: 천원)', height=420)
                 st.plotly_chart(fig_line, use_container_width=True)
 
-                # --- 8) 연도별 비교 막대 (그룹형) ---
                 st.markdown("#### 연도별 비교 (그룹형 막대)")
                 bar_df = trend_df.melt(id_vars=['연도'], value_vars=['화이트합계','블루합계'], var_name='직군', value_name='값')
                 bar_df['직군'] = bar_df['직군'].map({'화이트합계':'화이트칼라','블루합계':'블루칼라'})
@@ -556,15 +543,13 @@ elif page == "💰 임금":
                 fig_bar.update_layout(**LAYOUT, yaxis_title='월임금 합계 (천원)', height=420)
                 st.plotly_chart(fig_bar, use_container_width=True)
 
-                # --- 9) 직종별 분포 (박스플롯) for latest year ---
-                st.markdown(f"#### 직종별 임금 분포 (박스플롯) — {str(latest_col)}")
+                st.markdown(f"#### 직종별 임금 분포 — {str(latest_col)}")
                 if df_mgr is not None and latest_col in df_mgr.columns:
                     tmp = df_mgr[[job_col, latest_col]].copy()
                     tmp.columns = ['직종','월임금']
                     tmp['월임금'] = pd.to_numeric(tmp['월임금'], errors='coerce')
                     tmp = tmp.dropna(subset=['월임금'])
                     if not tmp.empty:
-                        # classify
                         def classify(s):
                             s = str(s)
                             if re.search(white_pattern, s): return '화이트칼라'
@@ -580,13 +565,17 @@ elif page == "💰 임금":
                 else:
                     st.info("관리자 포함 임금 데이터가 없습니다.")
 
-                # --- 10) 연도별 집계 표 출력 ---
-                st.markdown("#### 연도별 집계 표 (단위: 천원)")
-                st.dataframe(trend_df.set_index('연도'))
-                insight("데이터 단위는 CSV 기준으로 '천원'입니다. 관리자 포함/제외의 차이를 확인하세요.", 'green')
+                st.markdown("#### 연도별 요약 표 (단위: 천원)")
+                avg_rows = []
+                for c in year_cols:
+                    w = df_mgr.loc[mask(df_mgr, white_pattern), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
+                    b = df_mgr.loc[mask(df_mgr, blue_pattern), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
+                    avg_rows.append({'연도': str(int(re.search(r'\d{4}', str(c)).group(0))) if re.search(r'\d{4}', str(c)) else str(c),
+                                     '화이트평균(천원)': w, '블루평균(천원)': b})
+                avg_df = pd.DataFrame(avg_rows).set_index('연도')
+                st.dataframe(avg_df.style.format("{:,.0f}"))
 
-
-
+                insight("발표용: 슬라이드에는 '한 줄 요약'과 '핵심 수치'만 크게 보여주고, 세부 차트는 보조로 사용하세요.", 'green')
 
 # -------------------------
 # 7. 결론
@@ -594,24 +583,11 @@ elif page == "💰 임금":
 elif page == "📝 결론":
     st.title("📝 결론 및 시사점")
     st.markdown("#### 요약")
-    try:
-        df_yearly = load_yearly()
-        year_cols = find_year_columns(df_yearly)
-        latest = year_cols[-1] if year_cols else df_yearly.columns[-1]
-        total = to_numeric_safe(df_yearly[df_yearly[df_yearly.columns[0]].astype(str).str.contains('계', na=False)][latest]).sum()
-        st.metric("전체 취업자 (최근)", f"{total/10000:.1f}만명")
-    except Exception:
-        st.write("- 일부 수치가 비어있을 수 있습니다.")
+    st.write("- 화이트칼라와 블루칼라의 분포와 임금 차이를 연령·성별·지역 관점에서 분석했습니다.")
+    st.write("- 관리자 포함 여부가 평균 임금에 큰 영향을 미칩니다.")
+    st.markdown("#### 시사점")
+    st.write("- 중간임금층 강화 정책 필요성; 지역별·성별 맞춤형 일자리 정책 고려.")
+    insight("데이터 출처와 전처리(단위, 결측치)를 발표자료에 명확히 표기하세요.", 'green')
 
-    st.markdown("---")
-    st.write("- 화이트칼라 비중이 증가하는 추세가 관찰됩니다.")
-    st.write("- 지역별 산업구조 차이가 뚜렷합니다.")
-    st.write("- 임금은 관리자 효과를 고려해야 합니다.")
-    insight("교수님용: 데이터·전처리·단위(천원/월) 명시 권장", 'green')
-
-# -------------------------
-# 기본
-# -------------------------
 else:
-    st.write("사이드바에서 페이지를 선택하세요.")
-
+    st.info("사이드바에서 페이지를 선택하세요.")
