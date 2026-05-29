@@ -331,164 +331,171 @@ elif page == "🎂 연령별":
             st.warning("연령대 컬럼을 찾지 못했습니다. CSV 구조를 확인해주세요.")
 
 # -------------------------
-# 6. 임금
+# 6. 임금 (업로드된 CSV 구조용 완전 대체 블록)
 # -------------------------
 elif page == "💰 임금":
     import re
-    st.title("💰 직종별 평균 임금 비교")
+    st.title("💰 직종별 평균 임금 비교 (2020–2025)")
 
-    # 데이터 로드
-    df_mgr = load_wage(include_manager=True)
-    df_nomgr = load_wage(include_manager=False)
+    # 데이터 로드 (load_wage 함수가 이미 정의되어 있음)
+    df_mgr = load_wage(include_manager=True)    # 관리자 포함 파일
+    df_nomgr = load_wage(include_manager=False) # 관리자 미포함 파일
 
     # 파일 존재 확인
     if (df_mgr is None or df_mgr.empty) and (df_nomgr is None or df_nomgr.empty):
-        st.error("임금 관련 CSV 파일을 불러올 수 없습니다.")
+        st.error("임금 관련 CSV 파일을 불러올 수 없습니다. data/ 폴더에 관리자 포함/미포함 CSV를 확인하세요.")
     else:
-        # 후보 컬럼(필요하면 CSV에 맞게 추가)
-        wage_col_candidates = [
-            "2025 월급여액 (천원)",
-            "2025 월급여액(천원)",
-            "2025 월임금 (천원)",
-            "2025",
-            "월임금(2025)",
-            "월임금",
-            "월급여액 (천원)",
-            "월급여액"
-        ]
+        # --- 1) 연도 컬럼 명시 (업로드된 파일은 2020..2025 컬럼이 있음) ---
+        year_labels = ['2020','2021','2022','2023','2024','2025']
+        # 실제 컬럼명 매핑: 파일에는 숫자형 컬럼(정수)으로 들어있을 수 있으므로 문자열/정수 모두 처리
+        def find_col(df, y):
+            for c in df.columns:
+                if str(c).strip() == str(y) or re.search(r'\b' + str(y) + r'\b', str(c)):
+                    return c
+            return None
 
-        # 샘플 데이터프레임 선택
+        year_cols = []
         sample_df = df_mgr if (df_mgr is not None and not df_mgr.empty) else df_nomgr
+        for y in year_labels:
+            c = find_col(sample_df, y)
+            if c is not None:
+                year_cols.append(c)
 
-        # 1) 컬럼 자동 선택: 후보 우선 -> 연도 포함 컬럼 -> 마지막 수치형 컬럼 -> 마지막 컬럼
-        wage_col = None
-        for c in wage_col_candidates:
-            if c in sample_df.columns:
-                wage_col = c
-                break
-        if wage_col is None:
-            for c in sample_df.columns[::-1]:
-                if re.search(r'\b(19|20)\d{2}\b', str(c)):
-                    wage_col = c
-                    break
-        if wage_col is None:
-            num_cols = [c for c in sample_df.columns if pd.api.types.is_numeric_dtype(sample_df[c])]
-            wage_col = num_cols[-1] if num_cols else sample_df.columns[-1]
-
-        st.write("선택된 임금 컬럼:", wage_col)
-
-        # 2) 정규화 함수: 쉼표, 단위, 공백 제거 후 숫자 변환
-        def normalize_wage_col(df, col):
-            s = df[col].astype(str).fillna('')
-            s = s.str.replace(',', '')
-            s = s.str.replace(' ', '')
-            s = s.str.replace('천원', '')
-            s = s.str.replace('원', '')
-            s = s.str.replace('\u200b','')
-            s = s.replace({'-':'', '—':'', '–':'', '…':'', 'N/A':'', 'na':'', '': np.nan})
-            return pd.to_numeric(s, errors='coerce')
-
-        # 적용 (존재하는 경우에만)
-        if df_mgr is not None and wage_col in df_mgr.columns:
-            df_mgr[wage_col] = normalize_wage_col(df_mgr, wage_col)
-        if df_nomgr is not None and wage_col in df_nomgr.columns:
-            df_nomgr[wage_col] = normalize_wage_col(df_nomgr, wage_col)
-
-        # 3) 직종 컬럼(첫 컬럼) 확인
-        job_col = None
-        if df_mgr is not None and not df_mgr.empty:
-            job_col = df_mgr.columns[0]
-        elif df_nomgr is not None and not df_nomgr.empty:
-            job_col = df_nomgr.columns[0]
-
-        if job_col is None:
-            st.error("임금 데이터에서 직종 컬럼을 찾을 수 없습니다.")
+        if not year_cols:
+            st.error("연도 컬럼(2020~2025)을 찾지 못했습니다. CSV 헤더를 확인하세요.")
         else:
-            # 4) 매칭 패턴 (필요시 패턴 확장)
-            white_pattern = r'관리자|관리자\(|전문가|전문직|사무|사무종사|사무원'
-            blue_pattern  = r'기능원|기능|기계|기계조작|장치|조작|단순|노무|조립'
+            st.write("사용 연도 컬럼:", year_cols)
 
-            def safe_mask(df, col, pattern):
-                try:
-                    return df[col].astype(str).str.contains(pattern, na=False)
-                except Exception:
-                    return pd.Series([False]*len(df), index=df.index)
+            # --- 2) 정규화 유틸 (숫자형 보장) ---
+            def normalize_col(df, col):
+                s = df[col].astype(str).fillna('')
+                s = s.str.replace(',', '')
+                s = s.str.replace(' ', '')
+                s = s.str.replace('천원', '')
+                s = s.str.replace('원', '')
+                s = s.str.replace('\u200b','')
+                s = s.replace({'-':'', '—':'', '–':'', '…':'', 'N/A':'', 'na':'', '': np.nan})
+                return pd.to_numeric(s, errors='coerce')
 
-            # 마스크 생성
-            white_mask_mgr = safe_mask(df_mgr, job_col, white_pattern) if (df_mgr is not None and not df_mgr.empty) else pd.Series(dtype=bool)
-            blue_mask_mgr  = safe_mask(df_mgr, job_col, blue_pattern) if (df_mgr is not None and not df_mgr.empty) else pd.Series(dtype=bool)
-            white_mask_nom = safe_mask(df_nomgr, job_col, white_pattern) if (df_nomgr is not None and not df_nomgr.empty) else pd.Series(dtype=bool)
+            # 정규화 적용 (원본 덮어쓰기 허용)
+            for c in year_cols:
+                if df_mgr is not None and c in df_mgr.columns:
+                    df_mgr[c] = normalize_col(df_mgr, c)
+                if df_nomgr is not None and c in df_nomgr.columns:
+                    df_nomgr[c] = normalize_col(df_nomgr, c)
 
-            # 5) 평균 계산 (관리자 포함/제외)
-            white_all = df_mgr.loc[white_mask_mgr, wage_col].mean() if (df_mgr is not None and wage_col in df_mgr.columns) else np.nan
-            white_no_mgr = df_nomgr.loc[white_mask_nom, wage_col].mean() if (df_nomgr is not None and wage_col in df_nomgr.columns) else np.nan
-            blue_avg = df_mgr.loc[blue_mask_mgr, wage_col].mean() if (df_mgr is not None and wage_col in df_mgr.columns) else np.nan
+            # --- 3) 직종 컬럼 확인 (첫 컬럼이 '직종별' 형태) ---
+            job_col = None
+            if df_mgr is not None and not df_mgr.empty:
+                job_col = df_mgr.columns[1] if df_mgr.columns[0] in ['고용형태','"고용형태"'] else df_mgr.columns[1] if len(df_mgr.columns)>1 else df_mgr.columns[0]
+                # uploaded CSV uses columns: "고용형태","직종별",2020...
+                # ensure we pick the '직종별' column
+                # try to find column name containing '직종' if present
+                for c in df_mgr.columns[:3]:
+                    if '직종' in str(c):
+                        job_col = c
+                        break
+            elif df_nomgr is not None and not df_nomgr.empty:
+                for c in df_nomgr.columns[:3]:
+                    if '직종' in str(c):
+                        job_col = c
+                        break
 
-            # 6) 메트릭 표시
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("화이트칼라 평균(관리자 포함)", f"{white_all:,.0f}천원/월" if not np.isnan(white_all) else "데이터 없음")
-            c2.metric("화이트칼라 평균(관리자 제외)", f"{white_no_mgr:,.0f}천원/월" if not np.isnan(white_no_mgr) else "데이터 없음")
-            c3.metric("블루칼라 평균", f"{blue_avg:,.0f}천원/월" if not np.isnan(blue_avg) else "데이터 없음")
-            c4.metric("임금 격차(관리자 제외)", f"{(white_no_mgr - blue_avg):,.0f}천원" if (not np.isnan(white_no_mgr) and not np.isnan(blue_avg)) else "데이터 없음")
+            if job_col is None:
+                st.error("직종 컬럼을 찾을 수 없습니다.")
+            else:
+                st.write("직종 컬럼:", job_col)
 
-            st.markdown("---")
+                # --- 4) 화이트/블루 패턴 (업로드된 직종명에 맞춤) ---
+                white_pattern = r'관리자|전문가|전문직|사무'
+                blue_pattern  = r'기능원|기능|기계|기계조작|장치|조작|단순|노무|조립'
 
-            # 7) 직종별 바 차트 (관리자 포함)
-            if df_mgr is not None and wage_col in df_mgr.columns and not df_mgr.empty:
-                tmp = df_mgr[[job_col, wage_col]].copy()
-                tmp.columns = ['직종','월임금']
-                tmp['월임금'] = pd.to_numeric(tmp['월임금'], errors='coerce')
-                tmp = tmp.dropna(subset=['월임금'])
-                if not tmp.empty:
-                    # 직군 컬럼 미리 생성 (정규식 사용)
-                    def classify_group(s):
-                        s = str(s)
-                        if re.search(white_pattern, s):
-                            return '화이트칼라'
-                        if re.search(blue_pattern, s):
-                            return '블루칼라'
-                        return '기타'
-                    tmp['직군'] = tmp['직종'].apply(classify_group)
+                def mask(df, pattern):
+                    try:
+                        return df[job_col].astype(str).str.contains(pattern, na=False)
+                    except Exception:
+                        return pd.Series([False]*len(df), index=df.index)
 
-                    order = tmp.groupby('직종')['월임금'].median().sort_values(ascending=False).index.tolist()
-                    fig = px.bar(tmp.sort_values('월임금', ascending=False),
-                                 x='직종', y='월임금', color='직군',
-                                 category_orders={'직종': order},
-                                 color_discrete_map={'화이트칼라':CW,'블루칼라':CB,'기타':CO},
-                                 text='월임금')
-                    fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-                    fig.update_layout(**LAYOUT, height=420, xaxis_title='', yaxis_title='월임금 (천원)')
-                    st.plotly_chart(fig, use_container_width=True)
+                # --- 5) 연도별 집계(합계 또는 평균) 생성 ---
+                trend = []
+                for c in year_cols:
+                    w_sum = df_mgr.loc[mask(df_mgr, white_pattern), c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
+                    b_sum = df_mgr.loc[mask(df_mgr, blue_pattern), c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
+                    total = df_mgr[c].sum(skipna=True) if (df_mgr is not None and c in df_mgr.columns) else 0
+                    # 단위: 천원(파일 기준)
+                    trend.append({'연도': str(int(re.search(r'\d{4}', str(c)).group(0))) if re.search(r'\d{4}', str(c)) else str(c),
+                                  '화이트합계': float(w_sum or 0),
+                                  '블루합계': float(b_sum or 0),
+                                  '총합계': float(total or 0)})
+
+                trend_df = pd.DataFrame(trend)
+
+                # --- 6) 관리자 포함/제외 평균(최신 연도 기준) ---
+                latest_col = year_cols[-1]
+                # 관리자 포함: df_mgr에서 '관리자(1)' 등 매칭
+                mgr_mask = df_mgr[job_col].astype(str).str.contains(r'관리자', na=False) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
+                white_mask_mgr = mask(df_mgr, white_pattern) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
+                white_mask_nom = mask(df_nomgr, white_pattern) if (df_nomgr is not None and latest_col in df_nomgr.columns) else pd.Series([False])
+                blue_mask_mgr = mask(df_mgr, blue_pattern) if (df_mgr is not None and latest_col in df_mgr.columns) else pd.Series([False])
+
+                white_all = df_mgr.loc[white_mask_mgr, latest_col].mean() if (df_mgr is not None and latest_col in df_mgr.columns) else np.nan
+                white_no_mgr = df_nomgr.loc[white_mask_nom, latest_col].mean() if (df_nomgr is not None and latest_col in df_nomgr.columns) else np.nan
+                blue_avg = df_mgr.loc[blue_mask_mgr, latest_col].mean() if (df_mgr is not None and latest_col in df_mgr.columns) else np.nan
+
+                # 메트릭 (단위: 천원/월)
+                c1,c2,c3,c4 = st.columns(4)
+                c1.metric("화이트칼라 평균(관리자 포함)", f"{white_all:,.0f}천원/월" if not np.isnan(white_all) else "데이터 없음")
+                c2.metric("화이트칼라 평균(관리자 제외)", f"{white_no_mgr:,.0f}천원/월" if not np.isnan(white_no_mgr) else "데이터 없음")
+                c3.metric("블루칼라 평균", f"{blue_avg:,.0f}천원/월" if not np.isnan(blue_avg) else "데이터 없음")
+                c4.metric("임금 격차(관리자 제외)", f"{(white_no_mgr - blue_avg):,.0f}천원" if (not np.isnan(white_no_mgr) and not np.isnan(blue_avg)) else "데이터 없음")
+
+                st.markdown("---")
+
+                # --- 7) 연도별 추이 (라인 차트) ---
+                st.markdown("#### 연도별 합계 추이 (화이트 vs 블루)")
+                fig_line = go.Figure()
+                fig_line.add_trace(go.Scatter(x=trend_df['연도'], y=trend_df['화이트합계'], mode='lines+markers', name='화이트칼라', line=dict(color=CW)))
+                fig_line.add_trace(go.Scatter(x=trend_df['연도'], y=trend_df['블루합계'], mode='lines+markers', name='블루칼라', line=dict(color=CB)))
+                fig_line.update_layout(**LAYOUT, xaxis_title='연도', yaxis_title='월임금 합계 (단위: 천원)', height=420)
+                st.plotly_chart(fig_line, use_container_width=True)
+
+                # --- 8) 연도별 비교 막대 (그룹형) ---
+                st.markdown("#### 연도별 비교 (그룹형 막대)")
+                bar_df = trend_df.melt(id_vars=['연도'], value_vars=['화이트합계','블루합계'], var_name='직군', value_name='값')
+                bar_df['직군'] = bar_df['직군'].map({'화이트합계':'화이트칼라','블루합계':'블루칼라'})
+                fig_bar = px.bar(bar_df, x='연도', y='값', color='직군', barmode='group', color_discrete_map={'화이트칼라':CW,'블루칼라':CB})
+                fig_bar.update_layout(**LAYOUT, yaxis_title='월임금 합계 (천원)', height=420)
+                st.plotly_chart(fig_bar, use_container_width=True)
+
+                # --- 9) 직종별 분포 (박스플롯) for latest year ---
+                st.markdown(f"#### 직종별 임금 분포 (박스플롯) — {str(latest_col)}")
+                if df_mgr is not None and latest_col in df_mgr.columns:
+                    tmp = df_mgr[[job_col, latest_col]].copy()
+                    tmp.columns = ['직종','월임금']
+                    tmp['월임금'] = pd.to_numeric(tmp['월임금'], errors='coerce')
+                    tmp = tmp.dropna(subset=['월임금'])
+                    if not tmp.empty:
+                        # classify
+                        def classify(s):
+                            s = str(s)
+                            if re.search(white_pattern, s): return '화이트칼라'
+                            if re.search(blue_pattern, s): return '블루칼라'
+                            return '기타'
+                        tmp['직군'] = tmp['직종'].apply(classify)
+                        fig_box = px.box(tmp, x='월임금', y='직종', color='직군', orientation='h',
+                                         color_discrete_map={'화이트칼라':CW,'블루칼라':CB,'기타':CO}, points='outliers')
+                        fig_box.update_layout(**LAYOUT, xaxis_title='월임금 (천원)', height=420)
+                        st.plotly_chart(fig_box, use_container_width=True)
+                    else:
+                        st.info("임금 분포를 그릴 데이터가 없습니다.")
                 else:
                     st.info("관리자 포함 임금 데이터가 없습니다.")
-            else:
-                st.info("관리자 포함 임금 데이터가 없습니다.")
 
-            # 8) 박스플롯: 분포
-            if df_mgr is not None and wage_col in df_mgr.columns and not df_mgr.empty:
-                tmp2 = df_mgr[[job_col, wage_col]].copy()
-                tmp2.columns = ['직종','월임금']
-                tmp2['월임금'] = pd.to_numeric(tmp2['월임금'], errors='coerce')
-                tmp2 = tmp2.dropna(subset=['월임금'])
-                if not tmp2.empty:
-                    tmp2['직군'] = tmp2['직종'].apply(lambda s: '화이트칼라' if re.search(white_pattern, str(s)) else ('블루칼라' if re.search(blue_pattern, str(s)) else '기타'))
-                    fig2 = px.box(tmp2, x='월임금', y='직종', color='직군',
-                                  color_discrete_map={'화이트칼라':CW,'블루칼라':CB,'기타':CO},
-                                  points='outliers', orientation='h')
-                    # 평균선 추가
-                    shapes = []
-                    if not np.isnan(white_all):
-                        shapes.append(dict(type='line', x0=white_all, x1=white_all, y0=-0.5, y1=len(tmp2['직종'].unique())-0.5, line=dict(color=CW, dash='dash', width=1.5)))
-                    if not np.isnan(blue_avg):
-                        shapes.append(dict(type='line', x0=blue_avg, x1=blue_avg, y0=-0.5, y1=len(tmp2['직종'].unique())-0.5, line=dict(color=CB, dash='dash', width=1.5)))
-                    fig2.update_layout(**LAYOUT, height=420, shapes=shapes, xaxis_title='월임금 (천원)')
-                    st.plotly_chart(fig2, use_container_width=True)
-                else:
-                    st.info("임금 분포를 그릴 데이터가 없습니다.")
-            else:
-                st.info("임금 분포를 그릴 데이터가 없습니다.")
+                # --- 10) 연도별 집계 표 출력 ---
+                st.markdown("#### 연도별 집계 표 (단위: 천원)")
+                st.dataframe(trend_df.set_index('연도'))
+                insight("데이터 단위는 CSV 기준으로 '천원'입니다. 관리자 포함/제외의 차이를 확인하세요.", 'green')
 
-            insight("관리자 직종은 평균을 끌어올립니다. 관리자 제외 평균을 함께 제시하세요.", 'green')
 
 
 
