@@ -186,58 +186,58 @@ elif page == "📊 전국 현황":
 elif page == "🗺 지역별":
     st.title("🗺 시도별 화이트칼라 · 블루칼라 분포")
     df = load_region()
-    # 컬럼명 정리: 행정구역, 직업별, 연도별 값들
+
+    # 최신 연도 컬럼 자동 탐색
     cols_2024 = [c for c in df.columns if '2024' in str(c)]
     if not cols_2024:
-        # fallback: 숫자 포함 컬럼
         cols_2024 = [c for c in df.columns if any(ch.isdigit() for ch in str(c))]
     latest_col = cols_2024[0] if cols_2024 else df.columns[-1]
 
-    # 행정구역 컬럼 찾기
-    possible_region_cols = [c for c in df.columns if '행정' in str(c) or '시도' in str(c) or '행정구역' in str(c)]
-    region_col = possible_region_cols[0] if possible_region_cols else df.columns[0]
-    job_col = [c for c in df.columns if '직업' in str(c)][0] if any('직업' in str(c) for c in df.columns) else df.columns[1]
+    # 컬럼명 추정
+    region_col = next((c for c in df.columns if '행정' in str(c) or '시도' in str(c) or '행정구역' in str(c)), df.columns[0])
+    job_col = next((c for c in df.columns if '직업' in str(c)), df.columns[1] if len(df.columns)>1 else df.columns[0])
 
-    regions = df[region_col].unique()
+    # 안전한 숫자 변환 함수
+    import numpy as np
+    def to_numeric_safe(series):
+        s = series.astype(str).str.replace(',', '').str.replace(' ', '').str.replace('\u200b','')
+        s = s.replace({'-': np.nan, '—': np.nan, '–': np.nan, '…': np.nan, 'N/A': np.nan, 'na': np.nan, '': np.nan})
+        return pd.to_numeric(s, errors='coerce')
+
+    regions = df[region_col].dropna().unique()
     result = []
     for reg in regions:
         sub = df[df[region_col] == reg]
-        if sub.empty: continue
-        # 총계 행 찾기
-        total_row = sub[sub[job_col].str.contains('계', na=False)]
-        try:
-            total = float(total_row[latest_col].values[0])
-        except Exception:
-            total = sub[latest_col].astype(float).sum()
-        white = sub[sub[job_col].str.contains('관리자|전문가|사무', na=False)][latest_col].astype(float).sum()
-        blue = sub[sub[job_col].str.contains('기능원|기계조작|단순', na=False)][latest_col].astype(float).sum()
-        result.append({'지역':reg, '화이트':white, '블루':blue, '총':total})
-    rdf = pd.DataFrame(result).dropna()
+        if sub.empty:
+            continue
 
-    st.markdown("#### 시도별 블루칼라 규모 (트리맵)")
-    fig = px.treemap(rdf, path=['지역'], values='블루', color='블루',
-                     color_continuous_scale=[[0,'#21262d'],[0.5,'#f85149'],[1,'#ff6b6b']])
-    fig.update_layout(**LAYOUT, height=420)
-    st.plotly_chart(fig, use_container_width=True)
-    insight("제조업 중심 지역에서 블루칼라 비중이 높게 나타납니다.", 'red')
+        # 총계 찾기(없으면 합계로 대체)
+        total = None
+        total_row = sub[sub[job_col].astype(str).str.contains('계', na=False)]
+        if not total_row.empty:
+            total_val = to_numeric_safe(total_row[latest_col])
+            if not total_val.isna().all():
+                total = float(total_val.sum())
+        if total is None:
+            # fallback: 모든 값 합계 (안전 변환)
+            total = float(to_numeric_safe(sub[latest_col]).sum())
 
-    st.markdown("---")
-    st.markdown("#### 시도별 화이트 vs 블루 비율 (로리팝 스타일)")
-    rdf['화이트비율'] = rdf['화이트'] / rdf['총'] * 100
-    rdf['블루비율'] = rdf['블루'] / rdf['총'] * 100
-    rdf_s = rdf.sort_values('블루비율', ascending=True)
+        white = float(to_numeric_safe(sub[sub[job_col].astype(str).str.contains('관리자|전문가|사무', na=False)][latest_col]).sum())
+        blue = float(to_numeric_safe(sub[sub[job_col].astype(str).str.contains('기능원|기계조작|단순', na=False)][latest_col]).sum())
 
-    fig2 = go.Figure()
-    for _, row in rdf_s.iterrows():
-        fig2.add_trace(go.Scatter(x=[row['화이트비율'], row['블루비율']],
-                                  y=[row['지역'], row['지역']],
-                                  mode='lines', line=dict(color='#30363d', width=2), showlegend=False))
-    fig2.add_trace(go.Scatter(x=rdf_s['화이트비율'], y=rdf_s['지역'], mode='markers', name='화이트칼라',
-                              marker=dict(color=CW, size=12, line=dict(color='white', width=1))))
-    fig2.add_trace(go.Scatter(x=rdf_s['블루비율'], y=rdf_s['지역'], mode='markers', name='블루칼라',
-                              marker=dict(color=CB, size=12, line=dict(color='white', width=1))))
-    fig2.update_layout(**LAYOUT, height=520, xaxis_title='비율 (%)', yaxis_title='')
-    st.plotly_chart(fig2, use_container_width=True)
+        result.append({'지역': reg, '화이트': white, '블루': blue, '총': total})
+
+    rdf = pd.DataFrame(result).dropna(subset=['총'])
+    if rdf.empty:
+        st.warning("지역별 집계 결과가 비어있습니다. CSV 구조를 확인하세요.")
+    else:
+        st.markdown("#### 시도별 블루칼라 규모 (트리맵)")
+        fig = px.treemap(rdf, path=['지역'], values='블루', color='블루',
+                         color_continuous_scale=[[0,'#21262d'],[0.5,'#f85149'],[1,'#ff6b6b']])
+        fig.update_layout(**LAYOUT, height=420)
+        st.plotly_chart(fig, use_container_width=True)
+        insight("제조업 중심 지역에서 블루칼라 비중이 높게 나타납니다.", 'red')
+
 
 # -------------------------
 # 4. 성별
