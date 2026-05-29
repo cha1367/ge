@@ -308,139 +308,130 @@ elif page == "👥 성별":
             st.info("직종별 성별 데이터가 충분하지 않습니다. CSV 구조를 확인하세요.")
 
 # -------------------------
-# 5. 연령별 (새로 작성된 블록)
+# 학력별 섹션 추가 (app.py에 붙여넣기)
 # -------------------------
-elif page == "🎂 연령별":
-    st.title("🎂 연령별 직종 분포")
+elif page == "📚 학력별":
+    st.title("📚 학력별 직종 분포")
 
-    # 1) 데이터 로드 (load_age 사용; 파일명 다르면 load_age 정의를 수정)
-    df_age = None
+    # 1) 파일 로드 (직업별_학력별.csv 구조 대응)
     try:
-        df_age = load_age()
+        raw = load_csv_safe("data/직업별_학력별.csv")
     except Exception:
-        try:
-            df_age = pd.read_csv("data/직업별_연령별.csv", encoding='utf-8-sig')
-        except Exception:
-            try:
-                df_age = pd.read_csv("data/직업별_연령별.csv", encoding='cp949', errors='ignore')
-            except Exception:
-                df_age = None
+        raw = None
 
-    if df_age is None or df_age.empty:
-        st.error("연령별 데이터가 없습니다. data/ 폴더의 파일을 확인하거나 load_age()를 수정하세요.")
+    if raw is None or raw.empty:
+        st.error("학력별 데이터 파일을 찾을 수 없습니다. data/직업별_학력별.csv 확인하세요.")
     else:
-        # 2) 직종 컬럼 찾기 (안전하게)
-        job_col = None
-        for c in df_age.columns[:4]:
-            if any(k in str(c) for k in ['직종', '직업', '직종별', '직업별', '직군']):
-                job_col = c
-                break
-        if job_col is None:
-            job_col = df_age.columns[0]  # 최후의 수단
+        df = raw.copy()
 
-        st.write("**직종 컬럼**:", job_col)
-
-        # 3) 연령 컬럼 자동 탐지 (다양한 표기 지원)
-        age_cols = []
-        for c in df_age.columns:
-            s = str(c)
-            # 20대, 30대 등; 20s, 30s; 2024.1/2 같은 표기; 숫자만 있는 경우(예: '20')
-            if (re.search(r'\d{2}대', s)
-                or re.search(r'\b(10|20|30|40|50|60|70)대\b', s)
-                or re.search(r'\d{1,2}s\b', s, flags=re.I)
-                or re.search(r'\d{4}\.\d+/\d+', s)
-                or re.fullmatch(r'\d{1,3}', s.strip())):
-                age_cols.append(c)
-        # fallback: 직종 컬럼 이후 모든 컬럼을 연령으로 간주
-        if not age_cols:
-            idx = list(df_age.columns).index(job_col)
-            age_cols = list(df_age.columns[idx+1:]) if idx+1 < len(df_age.columns) else []
-        if not age_cols:
-            st.error("연령 컬럼을 자동으로 찾지 못했습니다. CSV 헤더를 확인하거나 수동으로 age_cols를 지정하세요.")
+        # 2) 헤더가 2행(연도|항목)으로 되어 있으면 재로딩 후 컬럼 합성
+        if df.columns[0].startswith('"직업별"') or '직업별' in str(df.columns[0]):
+            try:
+                raw2 = pd.read_csv("data/직업별_학력별.csv", header=None, encoding='utf-8-sig')
+            except Exception:
+                raw2 = pd.read_csv("data/직업별_학력별.csv", header=None, encoding='cp949', errors='ignore')
+            new_cols = []
+            for a, b in zip(raw2.iloc[0], raw2.iloc[1]):
+                a_s = str(a).strip().replace('"','')
+                b_s = str(b).strip().replace('"','')
+                new_cols.append(f"{a_s}|{b_s}")
+            df = raw2.iloc[2:].copy()
+            df.columns = new_cols
+            df = df.reset_index(drop=True)
+            df.rename(columns={df.columns[0]: '직종'}, inplace=True)
         else:
-            st.write("**탐지된 연령 컬럼**:", age_cols)
+            # 일반적 경우: 첫 컬럼을 직종으로 정리
+            if '직업별' in df.columns[0] or '직종' in df.columns[0]:
+                df.rename(columns={df.columns[0]:'직종'}, inplace=True)
 
-            # 4) 숫자 정규화 유틸
-            def to_num_col(s):
-                s = str(s)
-                s = s.replace(',', '').replace(' ', '').replace('명','').replace('명수','')
-                s = s.replace('\u200b','').replace('-', '')
+        # 3) 학력(교육정도) 컬럼 탐지
+        edu_patterns = ['교육정도', '학력', '중졸', '고졸', '대졸']
+        edu_cols = [c for c in df.columns if any(p in str(c) for p in edu_patterns)]
+        # 합성 컬럼명("연도|교육정도(...)") 형태 처리
+        if not edu_cols:
+            edu_cols = [c for c in df.columns if '|' in str(c) and any(p in str(c.split('|')[1]) for p in edu_patterns)]
+
+        if not edu_cols:
+            st.error("학력(교육정도) 컬럼을 찾지 못했습니다. CSV 헤더를 확인하세요.")
+        else:
+            st.write("탐지된 학력 컬럼:", edu_cols)
+
+            # 4) 숫자 정규화
+            def _to_num(x):
                 try:
+                    s = str(x).replace(',', '').replace(' ', '').replace('명','').replace('\u200b','')
                     return pd.to_numeric(s, errors='coerce')
                 except Exception:
                     return np.nan
 
-            df_age_norm = df_age.copy()
-            for c in age_cols:
-                df_age_norm[c] = df_age_norm[c].apply(to_num_col)
+            for c in edu_cols:
+                df[c] = df[c].apply(_to_num)
 
-            # 5) 총계 계산 및 상위 직종 선택
-            df_age_norm['총계'] = df_age_norm[age_cols].sum(axis=1, skipna=True)
-            top_n = st.slider("상위 직종 개수", min_value=5, max_value=30, value=10)
-            top_jobs = df_age_norm.sort_values('총계', ascending=False).head(top_n)
+            # 5) 총계(학력 합) 또는 최신 연도 학력만 선택
+            # 사용자가 '최신 연도'를 보고 싶을 수 있으므로, 컬럼명이 "연도|교육정도" 형태면 연도 선택 UI 제공
+            years = sorted({str(c).split('|')[0] for c in edu_cols if '|' in str(c)})
+            chosen_year = None
+            if years:
+                chosen_year = st.selectbox("연도 선택 (학력 컬럼이 연도|항목 형태일 때)", options=years, index=len(years)-1)
+                # 필터: 선택한 연도의 학력 컬럼들
+                edu_cols_year = [c for c in edu_cols if (('|' in str(c) and str(c).split('|')[0]==chosen_year) or chosen_year in str(c))]
+            else:
+                edu_cols_year = edu_cols
 
-            # 안전 출력: 숫자형 보장 후 표시
-            display_df = top_jobs[[job_col, '총계'] + age_cols].copy()
-            for c in [col for col in (age_cols + ['총계']) if col in display_df.columns]:
+            st.write("분석에 사용할 학력 컬럼:", edu_cols_year)
+
+            # 6) 직종별 학력 합계 계산 및 상위 직종 선택
+            df['학력총계'] = df[edu_cols_year].sum(axis=1, skipna=True)
+            top_n = st.slider("상위 직종 개수 (학력 기준)", min_value=5, max_value=30, value=10, key='edu_topn')
+            top_jobs = df.sort_values('학력총계', ascending=False).head(top_n)
+
+            # 안전 출력
+            display_cols = ['직종', '학력총계'] + edu_cols_year
+            display_df = top_jobs[display_cols].copy()
+            for c in edu_cols_year + ['학력총계']:
                 display_df[c] = pd.to_numeric(display_df[c], errors='coerce').fillna(0)
-            st.markdown("#### 상위 직종 표 (총계 기준)")
+            st.markdown("#### 상위 직종 표 (학력 기준)")
             st.dataframe(display_df.reset_index(drop=True).style.format("{:,.0f}"))
 
-            # 6) 직종별 연령 분포 (절대값 누적막대)
-            st.markdown("#### 직종별 연령 분포 (절대값)")
-            plot_df = top_jobs[[job_col] + age_cols].melt(id_vars=[job_col], value_vars=age_cols,
-                                                          var_name='연령', value_name='취업자수')
-            order = top_jobs[job_col].tolist()
-            fig_abs = px.bar(plot_df, x=job_col, y='취업자수', color='연령',
-                             category_orders={job_col: order}, labels={job_col:'직종', '취업자수':'취업자 수 (명)'})
-            fig_abs.update_layout(barmode='stack', height=520, **LAYOUT)
-            st.plotly_chart(fig_abs, use_container_width=True)
+            # 7) 학력 분포(절대값) — 스택형 막대
+            st.markdown("#### 직종별 학력 분포 (절대값)")
+            plot_df = display_df.melt(id_vars=['직종'], value_vars=edu_cols_year, var_name='학력', value_name='인원')
+            fig = px.bar(plot_df, x='직종', y='인원', color='학력', barmode='stack', height=520)
+            fig.update_layout(**LAYOUT)
+            st.plotly_chart(fig, use_container_width=True)
 
-            # 7) 직종별 연령 비율 (정규화 누적막대)
-            st.markdown("#### 직종별 연령 비율 (%)")
-            pct_df = top_jobs[[job_col] + age_cols].copy()
-            for c in age_cols:
-                pct_df[c] = pct_df[c] / pct_df['총계'] * 100
-            plot_pct = pct_df.melt(id_vars=[job_col], value_vars=age_cols, var_name='연령', value_name='비율')
-            fig_pct = px.bar(plot_pct, x=job_col, y='비율', color='연령',
-                             category_orders={job_col: order}, labels={'비율':'비율 (%)'})
-            fig_pct.update_layout(barmode='stack', height=520, **LAYOUT)
-            st.plotly_chart(fig_pct, use_container_width=True)
+            # 8) 학력 비율(정규화)
+            st.markdown("#### 직종별 학력 비율 (%)")
+            pct = display_df.copy()
+            for c in edu_cols_year:
+                pct[c] = np.where(pct['학력총계']>0, pct[c] / pct['학력총계'] * 100, 0)
+            plot_pct = pct.melt(id_vars=['직종'], value_vars=edu_cols_year, var_name='학력', value_name='비율')
+            fig2 = px.bar(plot_pct, x='직종', y='비율', color='학력', barmode='stack', height=520)
+            fig2.update_layout(**LAYOUT)
+            st.plotly_chart(fig2, use_container_width=True)
 
-            # 8) 연령별 상위 직종 표
-            st.markdown("#### 연령별 상위 직종")
-            top_k = st.slider("연령별 상위 직종 개수", min_value=3, max_value=10, value=5, key='topk_age')
-            cols = age_cols.copy()
-            for c in cols:
-                tmp = df_age_norm[[job_col, c]].dropna().sort_values(c, ascending=False).head(top_k)
-                st.markdown(f"**{c} 상위 {top_k} 직종**")
-                st.table(tmp.set_index(job_col).style.format("{:,.0f}"))
-
-            # 9) 특정 직종의 연령 분포 보기
-            st.markdown("#### 특정 직종의 연령 분포")
-            jobs_list = df_age_norm[job_col].astype(str).fillna("N/A").unique().tolist()
-            selected_job = st.selectbox("직종 선택", jobs_list, index=0)
-            sel_row = df_age_norm[df_age_norm[job_col].astype(str) == str(selected_job)]
+            # 9) 특정 직종 선택 시 학력 분포
+            st.markdown("#### 특정 직종의 학력 분포")
+            jobs = df['직종'].astype(str).fillna('N/A').unique().tolist()
+            sel = st.selectbox("직종 선택", jobs, index=0, key='edu_select_job')
+            sel_row = df[df['직종'].astype(str) == str(sel)]
             if not sel_row.empty:
-                sel_vals = sel_row[age_cols].iloc[0].to_dict()
-                sel_df = pd.DataFrame({'연령': list(sel_vals.keys()), '취업자수': list(sel_vals.values())})
-                sel_df['취업자수'] = pd.to_numeric(sel_df['취업자수'], errors='coerce').fillna(0)
-                fig_sel = px.bar(sel_df, x='취업자수', y='연령', orientation='h', labels={'취업자수':'취업자 수 (명)'}, color='연령', height=360)
-                st.plotly_chart(fig_sel, use_container_width=True)
+                sel_vals = sel_row[edu_cols_year].iloc[0].to_dict()
+                sel_df = pd.DataFrame({'학력': list(sel_vals.keys()), '인원': list(sel_vals.values())})
+                sel_df['인원'] = pd.to_numeric(sel_df['인원'], errors='coerce').fillna(0)
+                fig3 = px.bar(sel_df, x='인원', y='학력', orientation='h', height=360)
+                st.plotly_chart(fig3, use_container_width=True)
             else:
                 st.info("선택한 직종의 데이터가 없습니다.")
 
             # 10) 발표자 노트 및 디버그
             st.markdown("---")
             st.markdown("**발표자 노트**")
-            st.write("- 슬라이드에는 한 줄 요약과 핵심 연령대(예: 30대 비중)만 크게 표시하세요.")
-            st.write("- 발표 화면은 상위 5~8개 직종만 노출하면 가독성이 좋습니다.")
-            st.markdown("**디버그**")
-            if st.checkbox("디버그 출력 보기"):
-                st.write("원본 컬럼:", list(df_age.columns))
-                st.write("탐지된 연령 컬럼:", age_cols)
-                st.write("직종 샘플:", df_age[job_col].astype(str).unique()[:30])
-                st.dataframe(df_age_norm[[job_col] + age_cols].head(8).fillna(''))
+            st.write("- 슬라이드에는 '학력별 핵심 인사이트' 한 줄과 핵심 수치(예: 대졸 비중 상위 직종)를 크게 표시하세요.")
+            if st.checkbox("디버그 출력 보기", key='edu_debug'):
+                st.write("원본 컬럼(샘플):", list(raw.columns)[:40])
+                st.write("정리된 컬럼(샘플):", list(df.columns)[:60])
+                st.dataframe(df[['직종'] + edu_cols_year].head(8).fillna(''))
 
 
 # -------------------------
