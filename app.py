@@ -310,161 +310,136 @@ elif page == "👥 성별":
 # -------------------------
 # 5. 연령별
 # -------------------------
-# -------------------------
-# 6. 임금 (발표용 개선 블록)
-# -------------------------
-elif page == "💰 임금":
-    import re
-    st.title("💰 직종별 평균 임금 비교 (발표용)")
+# 연령별 직종 분포 시각화 (Streamlit + Plotly)
+import re
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
 
-    # 데이터 로드
-    df_mgr = load_wage(include_manager=True)
-    df_nomgr = load_wage(include_manager=False)
+# --- 0. 데이터 로드: 환경에 맞게 수정 ---
+# 예: df_age = pd.read_csv("data/연령별_직종.csv", encoding='utf-8-sig')
+# 또는 기존 로더가 있으면 사용: df_age = load_age()
+try:
+    df_age  # if already defined
+except NameError:
+    df_age = load_age() if 'load_age' in globals() else None
 
-    # 파일 체크
-    if (df_mgr is None or df_mgr.empty) and (df_nomgr is None or df_nomgr.empty):
-        st.error("임금 CSV 파일을 찾을 수 없습니다. data/ 폴더를 확인하세요.")
+if df_age is None or df_age.empty:
+    st.error("연령별 데이터가 없습니다. df_age를 로드하거나 파일을 확인하세요.")
+else:
+    st.title("연령별 직종 분포")
+
+    # --- 1. 직종 컬럼(행 레이블) 찾기 ---
+    # 보통 CSV 첫 두 컬럼이 '고용형태','직종별' 형태이므로 안전하게 찾음
+    job_col = None
+    for c in df_age.columns[:3]:
+        if '직종' in str(c) or '직업' in str(c) or '직종별' in str(c):
+            job_col = c
+            break
+    if job_col is None:
+        # fallback: 두 번째 컬럼을 직종으로 가정
+        job_col = df_age.columns[1] if len(df_age.columns) > 1 else df_age.columns[0]
+    st.write("직종 컬럼:", job_col)
+
+    # --- 2. 연령 컬럼 자동 탐색 ---
+    # 흔한 표기: '20대','30대', '20s','30s', '2024.1/2' 등
+    age_cols = []
+    for c in df_age.columns:
+        s = str(c)
+        if re.search(r'\d{2}대', s) or re.search(r'\b(10|20|30|40|50|60|70)대\b', s) or re.search(r'\d{4}\.\d+/\d+', s) or re.search(r'^\d{2}$', s):
+            age_cols.append(c)
+    # fallback: 연령 컬럼이 첫 컬럼 이후 연속으로 들어있다면 그 범위를 사용
+    if not age_cols:
+        # assume columns after first two are age columns
+        age_cols = list(df_age.columns[2:]) if len(df_age.columns) > 2 else []
+    if not age_cols:
+        st.error("연령 컬럼을 자동으로 찾지 못했습니다. 컬럼명을 확인하거나 수동으로 age_cols를 지정하세요.")
     else:
-        # --- 연도 컬럼 찾기 (2020~2025 우선) ---
-        years = ['2020','2021','2022','2023','2024','2025']
-        def find_col(df, y):
-            for c in df.columns:
-                if str(c).strip() == str(y) or re.search(r'\b' + str(y) + r'\b', str(c)):
-                    return c
-            return None
-        sample = df_mgr if (df_mgr is not None and not df_mgr.empty) else df_nomgr
-        year_cols = [find_col(sample, y) for y in years]
-        year_cols = [c for c in year_cols if c is not None]
+        st.write("탐지된 연령 컬럼:", age_cols)
 
-        if not year_cols:
-            st.error("연도 컬럼을 찾지 못했습니다. CSV 헤더를 확인하세요.")
+        # --- 3. 정규화: 숫자형으로 변환 ---
+        def to_num(s):
+            s = str(s)
+            s = s.replace(',', '').replace(' ', '').replace('명','').replace('명수','')
+            s = s.replace('\u200b','')
+            return pd.to_numeric(s, errors='coerce')
+
+        df_age_norm = df_age.copy()
+        for c in age_cols:
+            df_age_norm[c] = to_num(df_age_norm[c])
+
+        # --- 4. 요약 테이블: 직종별 총합 및 연령별 비율 ---
+        df_age_norm['총계'] = df_age_norm[age_cols].sum(axis=1, skipna=True)
+        # 상위 직종(총계 기준)
+        top_n = st.slider("상위 직종 개수", min_value=5, max_value=20, value=10)
+        top_jobs = df_age_norm.sort_values('총계', ascending=False).head(top_n)
+
+        st.markdown("#### 상위 직종 표 (총계 기준)")
+        st.dataframe(top_jobs[[job_col, '총계'] + age_cols].reset_index(drop=True).style.format("{:,.0f}"))
+
+        # --- 5. 누적 막대: 직종별 연령 분포 (절대값) ---
+        st.markdown("#### 직종별 연령 분포 (절대값, 상위 직종)")
+        plot_df = top_jobs[[job_col] + age_cols].melt(id_vars=[job_col], value_vars=age_cols, var_name='연령', value_name='취업자수')
+        # 정렬: 총계 기준 직종 순서 유지
+        order = top_jobs[job_col].tolist()
+        fig = px.bar(plot_df, x=job_col, y='취업자수', color='연령', category_orders={job_col: order}, title='', labels={job_col:'직종', '취업자수':'취업자 수 (명)'})
+        fig.update_layout(barmode='stack', xaxis={'categoryorder':'array', 'categoryarray':order}, height=520)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # --- 6. 비율 누적 막대: 직종별 연령 비율 ---
+        st.markdown("#### 직종별 연령 비율 (정규화, 상위 직종)")
+        pct_df = top_jobs[[job_col] + age_cols].copy()
+        for c in age_cols:
+            pct_df[c] = pct_df[c] / pct_df['총계'] * 100
+        plot_pct = pct_df.melt(id_vars=[job_col], value_vars=age_cols, var_name='연령', value_name='비율')
+        fig2 = px.bar(plot_pct, x=job_col, y='비율', color='연령', category_orders={job_col: order}, labels={'비율':'비율 (%)'})
+        fig2.update_layout(barmode='stack', height=520)
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # --- 7. 연령별 상위 직종(각 연령에서 취업자 많은 직종) ---
+        st.markdown("#### 연령별 상위 직종")
+        top_k = st.slider("연령별 상위 직종 개수", min_value=3, max_value=10, value=5, key='topk_age')
+        age_top_tables = {}
+        for c in age_cols:
+            tmp = df_age_norm[[job_col, c]].dropna().sort_values(c, ascending=False).head(top_k)
+            age_top_tables[c] = tmp
+            st.markdown(f"**{c} 상위 {top_k} 직종**")
+            st.table(tmp.set_index(job_col).style.format("{:,.0f}"))
+
+        # --- 8. 선택 직종에 대한 연령 분포(수평 바) ---
+        st.markdown("#### 특정 직종의 연령 분포 보기")
+        selected_job = st.selectbox("직종 선택", df_age_norm[job_col].astype(str).unique().tolist(), index=0)
+        sel_row = df_age_norm[df_age_norm[job_col].astype(str) == str(selected_job)]
+        if not sel_row.empty:
+            sel_vals = sel_row[age_cols].iloc[0].to_dict()
+            sel_df = pd.DataFrame({'연령': list(sel_vals.keys()), '취업자수': list(sel_vals.values())})
+            fig3 = px.bar(sel_df, x='취업자수', y='연령', orientation='h', labels={'취업자수':'취업자 수 (명)'}, color='연령', height=360)
+            st.plotly_chart(fig3, use_container_width=True)
         else:
-            # --- 정규화 유틸 ---
-            def norm_col(df, col):
-                s = df[col].astype(str).fillna('')
-                s = s.str.replace(',', '').str.replace(' ', '').str.replace('천원','').str.replace('원','').str.replace('\u200b','')
-                s = s.replace({'-':'', '—':'', '–':'', '…':'', 'N/A':'', 'na':'', '': np.nan})
-                return pd.to_numeric(s, errors='coerce')
+            st.info("선택한 직종의 데이터가 없습니다.")
 
-            for c in year_cols:
-                if df_mgr is not None and c in df_mgr.columns:
-                    df_mgr[c] = norm_col(df_mgr, c)
-                if df_nomgr is not None and c in df_nomgr.columns:
-                    df_nomgr[c] = norm_col(df_nomgr, c)
+        # --- 9. 발표자 노트 및 체크리스트 ---
+        st.markdown("---")
+        st.markdown("**발표자 노트**")
+        st.write("- 슬라이드에는 **한 줄 요약**(핵심 인사이트) + 핵심 연령대 수치(예: 30대 비중 45%)를 크게 표시하세요.")
+        st.write("- 복잡한 차트는 보조 자료로 두고, 발표 화면에는 상위 5~8개 직종만 노출하세요.")
+        st.write("- 단위 표기: 모든 차트에 '취업자 수 (명)' 또는 '비율 (%)' 명시.")
+        st.markdown("**체크리스트**")
+        st.write("- 데이터 단위 확인 완료")
+        st.write("- 상위 직종 개수 조정(슬라이더로 테스트)")
+        st.write("- 발표자 노트 숙지")
 
-            # --- 직종 컬럼 찾기 ---
-            job_col = None
-            for c in sample.columns[:3]:
-                if '직종' in str(c) or '직업' in str(c):
-                    job_col = c
-                    break
-            if job_col is None:
-                job_col = sample.columns[1] if len(sample.columns) > 1 else sample.columns[0]
+        # --- 10. 디버그 출력(문제 발생 시 복사해서 붙여넣기) ---
+        if st.checkbox("디버그 출력 보기"):
+            st.write("원본 컬럼:", list(df_age.columns))
+            st.write("탐지된 연령 컬럼:", age_cols)
+            st.write("직종 샘플:", df_age[job_col].astype(str).unique()[:30])
+            st.write("정규화 샘플 (상위 8행):")
+            st.dataframe(df_age_norm[[job_col] + age_cols].head(8))
 
-            # --- 패턴 정의 ---
-            white_pat = r'관리자|전문가|전문직|사무'
-            blue_pat  = r'기능원|기능|기계|기계조작|장치|조작|단순|노무|조립'
 
-            def mask(df, pat):
-                try:
-                    return df[job_col].astype(str).str.contains(pat, na=False)
-                except Exception:
-                    return pd.Series([False]*len(df), index=df.index)
-
-            # --- 최신 연도 메트릭 (큰 숫자, 발표용 강조) ---
-            latest = year_cols[-1]
-            white_all = df_mgr.loc[mask(df_mgr, white_pat), latest].mean() if (df_mgr is not None and latest in df_mgr.columns) else np.nan
-            white_no_mgr = df_nomgr.loc[mask(df_nomgr, white_pat), latest].mean() if (df_nomgr is not None and latest in df_nomgr.columns) else np.nan
-            blue_avg = df_mgr.loc[mask(df_mgr, blue_pat), latest].mean() if (df_mgr is not None and latest in df_mgr.columns) else np.nan
-
-            # 큰 메트릭 영역 (발표용 강조)
-            st.markdown("### 핵심 메트릭 (단위: 천원/월)")
-            m1, m2, m3, m4 = st.columns([1.2,1.2,1.2,1.2])
-            m1.metric("화이트칼라 평균 (관리자 포함)", f"{white_all:,.0f}천원/월" if not np.isnan(white_all) else "데이터 없음")
-            m2.metric("화이트칼라 평균 (관리자 제외)", f"{white_no_mgr:,.0f}천원/월" if not np.isnan(white_no_mgr) else "데이터 없음")
-            m3.metric("블루칼라 평균", f"{blue_avg:,.0f}천원/월" if not np.isnan(blue_avg) else "데이터 없음")
-            if not np.isnan(white_no_mgr) and not np.isnan(blue_avg):
-                gap = white_no_mgr - blue_avg
-                m4.metric("임금 격차 (관리자 제외)", f"{gap:,.0f}천원", f"{(gap/blue_avg*100):.1f}%")
-            else:
-                m4.metric("임금 격차 (관리자 제외)", "데이터 없음")
-
-            st.markdown("---")
-
-            # --- 발표용 요약 캡션 (크게) ---
-            st.markdown(f"**요약 (한 문장)**: {int(latest) if re.search(r'\\d{4}', str(latest)) else latest}년 기준, 화이트칼라 평균은 **{'' if np.isnan(white_all) else f'{white_all:,.0f}천원/월'}**이며, 블루칼라 평균은 **{'' if np.isnan(blue_avg) else f'{blue_avg:,.0f}천원/월'}**입니다.")
-            st.caption("데이터 단위: 천원/월 · 출처: 업로드된 CSV · 전처리: 쉼표·단위 제거")
-
-            # --- 연도별 추이 (라인) ---
-            st.markdown("#### 연도별 평균 추이 (화이트 vs 블루)")
-            trend = []
-            for c in year_cols:
-                w = df_mgr.loc[mask(df_mgr, white_pat), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
-                b = df_mgr.loc[mask(df_mgr, blue_pat), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
-                trend.append({'연도': str(int(re.search(r'\d{4}', str(c)).group(0))) if re.search(r'\d{4}', str(c)) else str(c),
-                              '화이트평균': float(w) if not np.isnan(w) else None,
-                              '블루평균': float(b) if not np.isnan(b) else None})
-            tdf = pd.DataFrame(trend)
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=tdf['연도'], y=tdf['화이트평균'], mode='lines+markers', name='화이트칼라', line=dict(color=CW, width=3)))
-            fig.add_trace(go.Scatter(x=tdf['연도'], y=tdf['블루평균'], mode='lines+markers', name='블루칼라', line=dict(color=CB, width=3)))
-            fig.update_layout(**LAYOUT, height=380, xaxis_title='연도', yaxis_title='평균 월임금 (천원)')
-            # 발표용 주석: 최근 연도 값 라벨
-            if not tdf['화이트평균'].isna().all():
-                fig.add_annotation(x=tdf['연도'].iloc[-1], y=tdf['화이트평균'].iloc[-1],
-                                   text=f"화이트 {tdf['화이트평균'].iloc[-1]:,.0f}천원", showarrow=True, arrowhead=2, ax=0, ay=-40, font=dict(color=CW))
-            if not tdf['블루평균'].isna().all():
-                fig.add_annotation(x=tdf['연도'].iloc[-1], y=tdf['블루평균'].iloc[-1],
-                                   text=f"블루 {tdf['블루평균'].iloc[-1]:,.0f}천원", showarrow=True, arrowhead=2, ax=0, ay=40, font=dict(color=CB))
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.markdown("---")
-
-            # --- 직종별 분포 (최신 연도) + 발표자 노트 ---
-            st.markdown(f"#### 직종별 임금 분포 — {str(latest)} (발표용)")
-            if df_mgr is not None and latest in df_mgr.columns:
-                tmp = df_mgr[[job_col, latest]].copy()
-                tmp.columns = ['직종','월임금']
-                tmp['월임금'] = pd.to_numeric(tmp['월임금'], errors='coerce')
-                tmp = tmp.dropna(subset=['월임금'])
-                if not tmp.empty:
-                    def classify(s):
-                        s = str(s)
-                        if re.search(white_pat, s): return '화이트칼라'
-                        if re.search(blue_pat, s): return '블루칼라'
-                        return '기타'
-                    tmp['직군'] = tmp['직종'].apply(classify)
-                    fig2 = px.box(tmp, x='월임금', y='직종', color='직군', orientation='h',
-                                  color_discrete_map={'화이트칼라':CW,'블루칼라':CB,'기타':CO}, points='outliers')
-                    fig2.update_layout(**LAYOUT, height=420, xaxis_title='월임금 (천원)')
-                    st.plotly_chart(fig2, use_container_width=True)
-
-                    # 발표자 노트(접근성: 버튼으로 토글)
-                    if st.button("발표자 노트 보기"):
-                        st.markdown("**발표자 노트**")
-                        st.write("- 핵심: 관리자 포함 시 화이트칼라 평균이 크게 올라감(관리자 영향).")
-                        st.write("- 포인트: 블루칼라 평균은 상대적으로 완만한 상승. 정책적 시사점: 중간임금층 강화 필요.")
-                        st.write("- 질문 대비: 데이터 출처, 단위(천원), 전처리(쉼표·단위 제거) 설명 준비.")
-                else:
-                    st.info("임금 분포를 그릴 데이터가 없습니다.")
-            else:
-                st.info("관리자 포함 임금 데이터가 없습니다.")
-
-            st.markdown("---")
-            # --- 연도별 표 (간단) ---
-            st.markdown("#### 연도별 요약 표 (단위: 천원)")
-            # 평균 기준 표 생성
-            avg_rows = []
-            for c in year_cols:
-                w = df_mgr.loc[mask(df_mgr, white_pat), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
-                b = df_mgr.loc[mask(df_mgr, blue_pat), c].mean() if (df_mgr is not None and c in df_mgr.columns) else np.nan
-                avg_rows.append({'연도': str(int(re.search(r'\d{4}', str(c)).group(0))) if re.search(r'\d{4}', str(c)) else str(c),
-                                 '화이트평균(천원)': w, '블루평균(천원)': b})
-            avg_df = pd.DataFrame(avg_rows).set_index('연도')
-            st.dataframe(avg_df.style.format("{:,.0f}"))
-
-            insight("발표용: 슬라이드에는 '한 줄 요약'과 '핵심 수치'만 크게 보여주고, 세부 차트는 보조로 사용하세요.", 'green')
 
 
 # -------------------------
