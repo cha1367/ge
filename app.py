@@ -4,6 +4,8 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import re
+
 
 st.set_page_config(page_title="화이트칼라 · 블루칼라 분석", page_icon="📊", layout="wide")
 
@@ -306,7 +308,6 @@ elif page == "👥 성별":
             insight("남성은 블루칼라 비중이 높고, 여성은 화이트칼라 비중이 상대적으로 높습니다.", 'red')
         else:
             st.info("직종별 성별 데이터가 충분하지 않습니다. CSV 구조를 확인하세요.")
-
 # -------------------------
 # 5. 연령별
 # -------------------------
@@ -332,7 +333,10 @@ elif page == "🎂 연령별":
         age_cols = []
         for c in df_age.columns:
             s = str(c)
-            if re.search(r'\d{2}대', s) or re.search(r'\b(10|20|30|40|50|60|70)대\b', s) or re.search(r'\d{4}\.\d+/\d+', s) or re.search(r'^\d{2}$', s):
+            if (re.search(r'\d{2}대', s)
+                or re.search(r'\b(10|20|30|40|50|60|70)대\b', s)
+                or re.search(r'\d{4}\.\d+/\d+', s)
+                or re.search(r'^\d{2}$', s)):
                 age_cols.append(c)
         if not age_cols:
             age_cols = list(df_age.columns[2:]) if len(df_age.columns) > 2 else []
