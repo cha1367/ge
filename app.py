@@ -303,19 +303,45 @@ elif page == "👤 직군 분포 분석":
         )
         st.plotly_chart(fig_age, use_container_width=True)
 
-        # 학력별 트리맵
-        st.markdown('<div class="section-title">학력별 직종 취업자 분포 트리맵 (2024년 상반기)</div>', unsafe_allow_html=True)
+        # 학력별 그룹 막대그래프
+        st.markdown('<div class="section-title">학력별 직종 취업자 분포 (2024년 상반기)</div>', unsafe_allow_html=True)
+
         df_edu_chart['구분']    = df_edu_chart['직종'].apply(lambda x: '화이트칼라' if '화이트' in x else '블루칼라')
         df_edu_chart['직종단순'] = df_edu_chart['직종'].str.replace('\n', ' ')
 
-        fig_tree = px.treemap(
-            df_edu_chart, path=['구분', '학력', '직종단순'], values='취업자',
-            color='구분',
-            color_discrete_map={'화이트칼라': '#2563eb', '블루칼라': '#d97706'},
+        edu_order = ['중졸이하', '고졸', '대졸이상']
+        job_colors = {
+            '화이트칼라 (전문가·관련종사자)': '#1d4ed8',
+            '화이트칼라 (사무종사자)':        '#2563eb',
+            '블루칼라 (기능원·관련기능)':     '#f59e0b',
+            '블루칼라 (장치·기계조작)':       '#d97706',
+            '블루칼라 (단순노무)':            '#b45309',
+        }
+
+        fig_edu = go.Figure()
+        for job_name in df_edu_chart['직종단순'].unique():
+            sub = df_edu_chart[df_edu_chart['직종단순'] == job_name]
+            sub = sub.set_index('학력').reindex(edu_order).reset_index()
+            fig_edu.add_trace(go.Bar(
+                name=job_name,
+                x=sub['학력'],
+                y=sub['취업자'],
+                marker_color=job_colors.get(job_name, '#888'),
+                text=[f'{v:,.0f}천명' for v in sub['취업자']],
+                textposition='outside',
+                textfont_size=10,
+            ))
+
+        fig_edu.update_layout(
+            barmode='group', height=420,
+            margin=dict(t=10, b=20, l=20, r=20),
+            yaxis_title='취업자 수 (천명)',
+            xaxis_title='학력',
+            legend=dict(orientation='h', y=-0.3, font_size=11),
+            plot_bgcolor='white', paper_bgcolor='white',
+            yaxis=dict(gridcolor='#f0f0f0'),
         )
-        fig_tree.update_layout(height=420, margin=dict(t=10, b=10))
-        fig_tree.update_traces(textfont_size=12)
-        st.plotly_chart(fig_tree, use_container_width=True)
+        st.plotly_chart(fig_edu, use_container_width=True)
 
     else:
         st.warning("2024.1/2 기간 데이터를 찾을 수 없습니다.")
