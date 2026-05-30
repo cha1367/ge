@@ -69,8 +69,8 @@ def load_data():
         df.columns = ['고용형태', '직종별'] + [str(y) for y in range(2020, 2026)]
         return df[df['고용형태'] == '전체근로자'].copy()
 
-    df_wage_incl = load_wage(f"{BASE}/관리자_포함.csv")
-    df_wage_excl = load_wage(f"{BASE}/관리자_미_포함.csv")
+    df_wage_incl = load_wage(f"{BASE}/관리자 포함.csv")
+    df_wage_excl = load_wage(f"{BASE}/관리자 미 포함.csv")
 
     # 3. 시도별 (raw 그대로 보존)
     raw_region = pd.read_csv(f"{BASE}/시도별_직업별.csv", header=None)
@@ -87,7 +87,7 @@ def load_data():
     sub_labels = raw_edu.iloc[1].tolist()
 
     # 5. 직종별 구인/미충원
-    raw_jd = pd.read_csv(f"{BASE}/직종별_규모별.csv", header=None)
+    raw_jd = pd.read_csv(f"{BASE}/직종별·규모별.csv", header=None)
     jd_years = raw_jd.iloc[0, 3:].tolist()
     jd_subs  = raw_jd.iloc[1, 3:].tolist()
     df_jd = raw_jd.iloc[2:].copy()
