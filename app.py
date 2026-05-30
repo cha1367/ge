@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import json
+import os
 
 st.set_page_config(
     page_title="대한민국 노동시장 직군 분포 분석",
@@ -57,7 +58,7 @@ html, body, [class*="css"] { font-family: 'Noto Sans KR', sans-serif; }
 # ── 데이터 로드 ──────────────────────────────────────────
 @st.cache_data
 def load_data():
-    base = "."  # 같은 폴더에 CSV 있어야 함
+    base = os.path.dirname(os.path.abspath(__file__))
 
     # 1. 취업자 연도별
     df_year = pd.read_csv(f"{base}/직업별_취업자_연도별.csv")
