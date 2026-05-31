@@ -551,103 +551,246 @@ elif page == "🏭  노동시장 수요 및 인력 수급":
     st.markdown("---")
 
     national, val_cols = load_supply()
-    periods = sorted(list(set([c.split('.')[0] for c in val_cols if c.count('/')==1])))
-    latest_p = periods[-1]
+
+    # ------------------------------------------------------------
+    # 1) 최신 시점 컬럼 자동 탐색
+    # ------------------------------------------------------------
+    # 예상 컬럼 구조 예시:
+    # 2025/1      → 구인인원
+    # 2025/1.1    → 미충원인원
+    # 2025/1.2    → 부족률
+    #
+    # 기존 코드에서는 latest_p = periods[-1] 방식으로 처리했는데,
+    # 실제 컬럼명이 정확히 맞지 않으면 KeyError 발생.
+    # 따라서 실제 존재하는 컬럼 기준으로 최신 base 컬럼을 찾는다.
+    # ------------------------------------------------------------
+
+    base_cols = [
+        str(c) for c in val_cols
+        if '/' in str(c)
+        and not str(c).endswith('.1')
+        and not str(c).endswith('.2')
+    ]
+
+    if not base_cols:
+        st.error("구인인원 기준 컬럼을 찾지 못했습니다.")
+        st.write("현재 val_cols:", val_cols)
+        st.write("현재 national 컬럼:", list(national.columns))
+        st.stop()
+
+    # 연도/반기 기준으로 정렬하기 위한 함수
+    def sort_period(col):
+        try:
+            year, half = str(col).split('/')
+            return int(year), int(half)
+        except:
+            return 0, 0
+
+    latest_p = sorted(base_cols, key=sort_period)[-1]
+
     gu_col = latest_p
     mi_col = f"{latest_p}.1"
     bu_col = f"{latest_p}.2"
 
-    sdf = national[national['직종별']!='전직종'].copy()
+    required_cols = [gu_col, mi_col, bu_col]
+    missing_cols = [c for c in required_cols if c not in national.columns]
+
+    if missing_cols:
+        st.error(f"필요한 컬럼이 데이터에 없습니다: {missing_cols}")
+        st.write("선택된 최신 시점:", latest_p)
+        st.write("현재 national 컬럼:", list(national.columns))
+        st.stop()
+
+    # ------------------------------------------------------------
+    # 2) 데이터 전처리
+    # ------------------------------------------------------------
+    sdf = national[national['직종별'] != '전직종'].copy()
+
     for c in [gu_col, mi_col, bu_col]:
         sdf[c] = pd.to_numeric(sdf[c], errors='coerce')
+
     sdf = sdf.dropna(subset=[gu_col])
-    sdf['직군'] = sdf['직종별'].apply(
-        lambda x: '화이트칼라' if x in WHITE_SUPPLY else '블루칼라'
+
+    def classify_supply_job(job):
+        if job in WHITE_SUPPLY:
+            return '화이트칼라'
+        elif job in BLUE_SUPPLY:
+            return '블루칼라'
+        else:
+            return '기타'
+
+    sdf['직군'] = sdf['직종별'].apply(classify_supply_job)
+
+    # 화이트칼라와 블루칼라만 분석 대상으로 사용
+    sdf_main = sdf[sdf['직군'].isin(['화이트칼라', '블루칼라'])].copy()
+
+    w_gu = sdf_main[sdf_main['직군'] == '화이트칼라'][gu_col].sum()
+    b_gu = sdf_main[sdf_main['직군'] == '블루칼라'][gu_col].sum()
+
+    w_mi = sdf_main[sdf_main['직군'] == '화이트칼라'][mi_col].sum()
+    b_mi = sdf_main[sdf_main['직군'] == '블루칼라'][mi_col].sum()
+
+    # ------------------------------------------------------------
+    # 3) 핵심 지표
+    # ------------------------------------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric(
+        "🔵 화이트칼라 구인",
+        f"{w_gu:,.0f}명",
+        latest_p
     )
 
-    w_gu = sdf[sdf['직군']=='화이트칼라'][gu_col].sum()
-    b_gu = sdf[sdf['직군']=='블루칼라'][gu_col].sum()
-    w_mi = sdf[sdf['직군']=='화이트칼라'][mi_col].sum()
-    b_mi = sdf[sdf['직군']=='블루칼라'][mi_col].sum()
+    c2.metric(
+        "🔴 블루칼라 구인",
+        f"{b_gu:,.0f}명",
+        latest_p
+    )
 
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("🔵 화이트칼라 구인", f"{w_gu:,.0f}명")
-    c2.metric("🔴 블루칼라 구인", f"{b_gu:,.0f}명")
-    c3.metric("🔵 화이트칼라 미충원", f"{w_mi:,.0f}명")
-    c4.metric("🔴 블루칼라 미충원", f"{b_mi:,.0f}명")
+    c3.metric(
+        "🔵 화이트칼라 미충원",
+        f"{w_mi:,.0f}명",
+        latest_p
+    )
+
+    c4.metric(
+        "🔴 블루칼라 미충원",
+        f"{b_mi:,.0f}명",
+        latest_p
+    )
 
     st.markdown("---")
+
+    # ------------------------------------------------------------
+    # 4) 직종별 구인인원 / 미충원인원
+    # ------------------------------------------------------------
     col1, col2 = st.columns(2)
+
     with col1:
-        st.markdown("#### 직종별 구인인원")
-        fig = px.bar(sdf.sort_values(gu_col,ascending=True),
-                     x=gu_col, y='직종별', orientation='h', color='직군',
-                     color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
-                     text=gu_col)
-        fig.update_traces(texttemplate='%{text:,.0f}명', textposition='outside',
-                          textfont=dict(color='#e6edf3'))
-        fig.update_layout(**LAYOUT, height=400, xaxis_title='구인인원 (명)', yaxis_title='')
+        st.markdown(f"#### 직종별 구인인원 ({latest_p})")
+
+        fig = px.bar(
+            sdf_main.sort_values(gu_col, ascending=True),
+            x=gu_col,
+            y='직종별',
+            orientation='h',
+            color='직군',
+            color_discrete_map={
+                '화이트칼라': CW,
+                '블루칼라': CB
+            },
+            text=gu_col
+        )
+
+        fig.update_traces(
+            texttemplate='%{text:,.0f}명',
+            textposition='outside',
+            textfont=dict(color='#e6edf3')
+        )
+
+        fig.update_layout(
+            **LAYOUT,
+            height=400
+        )
+
+        fig.update_xaxes(
+            title_text='구인인원 (명)'
+        )
+
+        fig.update_yaxes(
+            title_text=''
+        )
+
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
-        st.markdown("#### 직종별 미충원인원")
-        sdf_mi = sdf.dropna(subset=[mi_col]).sort_values(mi_col,ascending=True)
-        fig2 = px.bar(sdf_mi, x=mi_col, y='직종별', orientation='h', color='직군',
-                      color_discrete_map={'화이트칼라':CW,'블루칼라':CB}, text=mi_col)
-        fig2.update_traces(texttemplate='%{text:,.0f}명', textposition='outside',
-                           textfont=dict(color='#e6edf3'))
-        fig2.update_layout(**LAYOUT, height=400, xaxis_title='미충원인원 (명)', yaxis_title='')
+        st.markdown(f"#### 직종별 미충원인원 ({latest_p})")
+
+        sdf_mi = sdf_main.dropna(subset=[mi_col]).sort_values(mi_col, ascending=True)
+
+        fig2 = px.bar(
+            sdf_mi,
+            x=mi_col,
+            y='직종별',
+            orientation='h',
+            color='직군',
+            color_discrete_map={
+                '화이트칼라': CW,
+                '블루칼라': CB
+            },
+            text=mi_col
+        )
+
+        fig2.update_traces(
+            texttemplate='%{text:,.0f}명',
+            textposition='outside',
+            textfont=dict(color='#e6edf3')
+        )
+
+        fig2.update_layout(
+            **LAYOUT,
+            height=400
+        )
+
+        fig2.update_xaxes(
+            title_text='미충원인원 (명)'
+        )
+
+        fig2.update_yaxes(
+            title_text=''
+        )
+
         st.plotly_chart(fig2, use_container_width=True)
 
     st.markdown("---")
-    st.markdown("#### 직종별 부족률 (%)")
-    sdf_bu = sdf.dropna(subset=[bu_col]).sort_values(bu_col,ascending=False)
-    fig3 = px.bar(sdf_bu, x='직종별', y=bu_col,
-                  color=bu_col,
-                  color_continuous_scale=[[0,'#21262d'],[0.5,'#e3b341'],[1,CB]],
-                  text=bu_col)
-    fig3.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
-                       textfont=dict(color='#e6edf3'))
-    fig3.update_layout(**LAYOUT, height=360, xaxis_title='', yaxis_title='부족률 (%)',
-                       coloraxis_showscale=False)
+
+    # ------------------------------------------------------------
+    # 5) 직종별 부족률
+    # ------------------------------------------------------------
+    st.markdown(f"#### 직종별 부족률 (%) ({latest_p})")
+
+    sdf_bu = sdf_main.dropna(subset=[bu_col]).sort_values(bu_col, ascending=False)
+
+    fig3 = px.bar(
+        sdf_bu,
+        x='직종별',
+        y=bu_col,
+        color=bu_col,
+        color_continuous_scale=[
+            [0, '#21262d'],
+            [0.5, '#e3b341'],
+            [1, CB]
+        ],
+        text=bu_col
+    )
+
+    fig3.update_traces(
+        texttemplate='%{text:.1f}%',
+        textposition='outside',
+        textfont=dict(color='#e6edf3')
+    )
+
+    fig3.update_layout(
+        **LAYOUT,
+        height=360,
+        coloraxis_showscale=False
+    )
+
+    fig3.update_xaxes(
+        title_text=''
+    )
+
+    fig3.update_yaxes(
+        title_text='부족률 (%)'
+    )
+
     st.plotly_chart(fig3, use_container_width=True)
-    insight("설치·정비·생산직 및 건설직은 높은 구인 수요와 미충원이 동시에 발생 — 블루칼라 인력 수급 불균형 심화", 'red')
 
-# ══════════════════════════════════════════════════════════════
-# 페이지 6. 결론 및 시사점
-# ══════════════════════════════════════════════════════════════
-elif page == "📋  결론 및 시사점":
-    st.title("📋 결론 및 시사점")
-    st.markdown("---")
-
-    st.markdown("### 📌 핵심 발견사항")
-    findings = [
-        ("📊", "직군 분포", "#58a6ff",
-         "화이트칼라는 전문가·사무직 중심으로 높은 비중을 차지하고 있으며, "
-         "블루칼라도 제조업 및 생산직을 중심으로 상당한 규모를 유지하고 있다."),
-        ("👥", "성별 특성", "#f778ba",
-         "남성은 블루칼라 직군에 상대적으로 많이 종사하며, "
-         "여성은 사무직 및 전문직 비중이 높게 나타난다."),
-        ("🗺", "지역별 분포", "#3fb950",
-         "서울·경기 등 수도권에서 화이트칼라 비중이 높고, "
-         "제조업 중심 지역(울산·경남·충남)에서는 블루칼라 비중이 높게 나타난다."),
-        ("💰", "임금 수준", "#e3b341",
-         "전문가 직군과 관리자 직군에서 높은 임금 수준을 보이며 직군 간 임금 격차가 존재한다. "
-         "단, 대기업 생산직의 경우 중소기업 사무직보다 높은 경우도 있다."),
-        ("🏭", "노동시장 수요", "#f85149",
-         "설치·정비·생산직과 영업·판매·운송직에서 높은 구인 수요를 보이며, "
-         "특정 기술직에서 인력 부족 현상이 지속되고 있다."),
-        ("⚠️", "인력 수급 불균형", "#bc8cff",
-         "일부 생산직·설비직·기술직은 높은 부족률을 보여 "
-         "노동시장 내 수요와 공급 간 불균형이 존재하는 것으로 확인된다."),
-    ]
-    for i in range(0, len(findings), 2):
-        cols = st.columns(2)
-        for j, col in enumerate(cols):
-            if i+j < len(findings):
-                icon, title, color, desc = findings[i+j]
-                with col:
-                    card(f"{icon} {title}", desc, color)
+    insight(
+        "설치·정비·생산직 및 건설직은 높은 구인 수요와 미충원이 동시에 발생 — "
+        "블루칼라 인력 수급 불균형 심화",
+        'red'
+    )
 
     st.markdown("---")
     st.markdown("### 🔍 최종 결론")
