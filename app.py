@@ -101,7 +101,7 @@ def load_region():
 @st.cache_data
 def load_wage():
     # 관리자 포함/미포함 두 파일 로드
-    df_inc = pd.read_csv("data/관리자_포함.csv", encoding='utf-8-sig')
+    df_inc = pd.read_csv("data/관리자 포함.csv", encoding='utf-8-sig')
     df_inc = df_inc.iloc[1:].reset_index(drop=True)
     df_exc = pd.read_csv("data/관리자_미_포함.csv", encoding='utf-8-sig')
     df_exc = df_exc.iloc[1:].reset_index(drop=True)
