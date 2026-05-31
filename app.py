@@ -1,687 +1,653 @@
-import os
+# ============================================================
+# 대한민국 노동시장의 직군 분포와 인력 수급 특성 분석
+# 화이트칼라와 블루칼라를 중심으로
+# ============================================================
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import numpy as np
 
 st.set_page_config(
-    page_title="대한민국 노동시장 직군 분포 분석",
+    page_title="직군 분포 및 인력 수급 분석",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# ── 스타일 ──────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
-html, body, [class*="css"] { font-family: 'Noto Sans KR', sans-serif; }
-
-.metric-card {
-    background: linear-gradient(135deg, #1e3a5f 0%, #2d5f8a 100%);
-    border-radius: 12px; padding: 20px 24px; color: white;
-    text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+.stApp { background-color: #0d1117; }
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+    border-right: 1px solid #30363d;
 }
-.metric-card .label { font-size: 13px; opacity: 0.85; margin-bottom: 8px; }
-.metric-card .value { font-size: 32px; font-weight: 700; }
-.metric-card .sub   { font-size: 12px; opacity: 0.7; margin-top: 4px; }
-
-.white-card {
-    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
-    border-radius: 12px; padding: 20px 24px; color: white;
-    text-align: center; box-shadow: 0 4px 15px rgba(37,99,235,0.3);
+[data-testid="stSidebar"] * { color: #e6edf3 !important; }
+[data-testid="metric-container"] {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 16px;
 }
-.blue-card {
-    background: linear-gradient(135deg, #b45309 0%, #d97706 100%);
-    border-radius: 12px; padding: 20px 24px; color: white;
-    text-align: center; box-shadow: 0 4px 15px rgba(180,83,9,0.3);
-}
-.card-label { font-size: 13px; opacity: 0.9; margin-bottom: 6px; }
-.card-value { font-size: 28px; font-weight: 700; }
-.card-sub   { font-size: 12px; opacity: 0.8; margin-top: 4px; }
-
-.section-title {
-    font-size: 20px; font-weight: 700; color: #1e3a5f;
-    border-left: 4px solid #2563eb; padding-left: 12px;
-    margin: 24px 0 16px 0;
-}
+[data-testid="metric-container"] * { color: #e6edf3 !important; }
+h1 { color: #58a6ff !important; }
+h2, h3 { color: #e6edf3 !important; }
+.block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
+hr { border-color: #30363d !important; }
 </style>
 """, unsafe_allow_html=True)
 
+# ── 상수 ─────────────────────────────────────────────────────
+CW = '#58a6ff'
+CB = '#f85149'
+CO = '#6e7681'
 
-# ── 데이터 경로 ─────────────────────────────────────────
-# app.py 위치 기준으로 data 폴더 참조
-BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+WHITE_JOBS = ['1 관리자', '2 전문가 및 관련 종사자', '3 사무 종사자']
+BLUE_JOBS  = ['7 기능원 및 관련 기능종사자', '8 장치,기계조작 및 조립종사자', '9 단순노무 종사자']
+WHITE_REGION = ['관리자', '전문가 및 관련 종사자', '사무 종사자']
+BLUE_REGION  = ['기능원 및 관련 기능 종사자', '장치‧기계 조작 및 조립 종사자', '단순 노무 종사자']
+WHITE_SUPPLY = ['0 경영ㆍ사무ㆍ금융ㆍ보험직', '1 연구직 및 공학기술직',
+                '2 교육ㆍ법률ㆍ사회복지ㆍ경찰ㆍ소방직 및 군인', '3 보건ㆍ의료직']
+BLUE_SUPPLY  = ['5 미용ㆍ여행ㆍ숙박ㆍ음식ㆍ경비ㆍ청소직', '6 영업ㆍ판매ㆍ운전ㆍ운송직',
+                '7 건설ㆍ채굴직', '8 설치ㆍ정비ㆍ생산직', '9 농림어업직']
 
+LAYOUT = dict(
+    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+    font=dict(color='#8b949e'), margin=dict(t=40,b=30,l=20,r=20),
+    legend=dict(bgcolor='rgba(0,0,0,0)', font=dict(color='#e6edf3')),
+    xaxis=dict(gridcolor='#21262d', zerolinecolor='#21262d', color='#8b949e'),
+    yaxis=dict(gridcolor='#21262d', zerolinecolor='#21262d', color='#8b949e'),
+)
 
-# ── 데이터 로드 ──────────────────────────────────────────
+def insight(text, color='blue'):
+    c = {'blue':'#58a6ff','red':'#f85149','green':'#3fb950','yellow':'#e3b341'}.get(color,'#58a6ff')
+    st.markdown(
+        f'<div style="background:#161b22;border-left:4px solid {c};border-radius:0 8px 8px 0;'
+        f'padding:12px 16px;margin:8px 0;color:#8b949e;font-size:14px;">💡 {text}</div>',
+        unsafe_allow_html=True
+    )
+
+def card(title, content, color='#58a6ff'):
+    st.markdown(
+        f'<div style="background:#161b22;border:1px solid #30363d;border-top:3px solid {color};'
+        f'border-radius:8px;padding:20px;margin:6px 0;">'
+        f'<h4 style="color:{color};margin:0 0 10px 0;">{title}</h4>'
+        f'<p style="color:#8b949e;font-size:13px;line-height:1.7;margin:0;">{content}</p></div>',
+        unsafe_allow_html=True
+    )
+
+# ── 데이터 로딩 ───────────────────────────────────────────────
 @st.cache_data
-def load_data():
-    # 1. 취업자 연도별
-    df_year = pd.read_csv(f"{BASE}/직업별_취업자_연도별.csv")
-    df_year.columns = ['직업별'] + [str(c) for c in df_year.columns[1:]]
+def load_yearly():
+    df = pd.read_csv("data/직업별_취업자_연도별.csv", encoding='utf-8-sig')
+    year_cols = [c for c in df.columns if c.isdigit() and len(c)==4]
+    return df, year_cols, df.columns[0]
 
-    # 2. 임금 - 관리자 포함/미포함
-    def load_wage(path):
-        df = pd.read_csv(path, header=[0, 1])
-        df.columns = ['고용형태', '직종별'] + [str(y) for y in range(2020, 2026)]
-        return df[df['고용형태'] == '전체근로자'].copy()
+@st.cache_data
+def load_gender():
+    df = pd.read_csv("data/성별_직업별.csv", encoding='utf-8-sig')
+    year_cols = [c for c in df.columns if c.isdigit() and len(c)==4]
+    return df, year_cols
 
-    df_wage_incl = load_wage(f"{BASE}/관리자 포함.csv")
-    df_wage_excl = load_wage(f"{BASE}/관리자 미 포함.csv")
+@st.cache_data
+def load_region():
+    df = pd.read_csv("data/시도별_직업별.csv", encoding='utf-8-sig')
+    df = df.iloc[1:].reset_index(drop=True)
+    df.columns.values[0] = '행정구역'
+    df.columns.values[1] = '직업별'
+    val_cols = [c for c in df.columns if '/' in str(c)]
+    return df, val_cols
 
-    # 3. 시도별 (raw 그대로 보존)
-    raw_region = pd.read_csv(f"{BASE}/시도별_직업별.csv", header=None)
-    r_years = raw_region.iloc[0, 2:].tolist()
-    df_region = raw_region.iloc[2:].copy()
-    df_region.columns = ['행정구역', '직업별'] + r_years
-    df_region = df_region.reset_index(drop=True)
-    for c in r_years:
-        df_region[c] = pd.to_numeric(df_region[c], errors='coerce')
+@st.cache_data
+def load_wage():
+    # 관리자 포함/미포함 두 파일 로드
+    df_inc = pd.read_csv("data/관리자_포함.csv", encoding='utf-8-sig')
+    df_exc = pd.read_csv("data/관리자_미_포함.csv", encoding='utf-8-sig')
+    # 헤더행 제거
+    df_inc = df_inc.iloc[1:].reset_index(drop=True)
+    df_exc = df_exc.iloc[1:].reset_index(drop=True)
+    year_cols = [c for c in df_inc.columns if c.isdigit() and len(c)==4]
+    return df_inc, df_exc, year_cols
 
-    # 4. 학력/연령별
-    raw_edu = pd.read_csv(f"{BASE}/직업별_학력별.csv", header=None)
-    col_labels = raw_edu.iloc[0].tolist()
-    sub_labels = raw_edu.iloc[1].tolist()
+@st.cache_data
+def load_edu():
+    df = pd.read_csv("data/직업별_학력별.csv", encoding='utf-8-sig')
+    df = df.iloc[1:].reset_index(drop=True)
+    df.columns.values[0] = '직업별'
+    # 최신 반기 컬럼 (2024.1/2 기준: 취업자, 15~29, 30~39, 40~49, 50~59, 60이상, 중졸이하, 고졸, 대졸이상)
+    latest = '2024.1/2'
+    cols_2024 = [c for c in df.columns if latest in str(c)]
+    return df, cols_2024
 
-    # 5. 직종별 구인/미충원
-    raw_jd = pd.read_csv(f"{BASE}/직종별·규모별.csv", header=None)
-    jd_years = raw_jd.iloc[0, 3:].tolist()
-    jd_subs  = raw_jd.iloc[1, 3:].tolist()
-    df_jd = raw_jd.iloc[2:].copy()
-    df_jd.columns = ['시도별', '규모별', '직종별'] + [f"{y}_{s}" for y, s in zip(jd_years, jd_subs)]
-    df_jd = df_jd.reset_index(drop=True)
+@st.cache_data
+def load_supply():
+    df = pd.read_csv("data/직종별_규모별.csv", encoding='utf-8-sig')
+    df = df.iloc[1:].reset_index(drop=True)
+    df.columns.values[0] = '시도별'
+    df.columns.values[1] = '규모별'
+    df.columns.values[2] = '직종별'
+    national = df[(df['시도별']=='전국') & (df['규모별']=='전규모(1인이상)')].copy()
+    val_cols = [c for c in df.columns if '/' in str(c)]
+    return national, val_cols
 
-    return df_year, df_wage_incl, df_wage_excl, df_region, r_years, raw_edu, col_labels, sub_labels, df_jd
-
-df_year, df_wage_incl, df_wage_excl, df_region, r_years, raw_edu, col_labels, sub_labels, df_jd = load_data()
-
-# ── 분류 상수 ─────────────────────────────────────────────
-WHITE_COLLAR  = ['2 전문가 및 관련 종사자', '3 사무 종사자']
-BLUE_COLLAR   = ['7 기능원 및 관련 기능종사자', '8 장치,기계조작 및 조립종사자', '9 단순노무 종사자']
-WHITE_REGION  = ['전문가 및 관련 종사자', '사무 종사자']
-BLUE_REGION   = ['기능원 및 관련 기능 종사자', '장치\u200b\u2027기계 조작 및 조립 종사자', '단순 노무 종사자']
-
-
-# ── 사이드바 ──────────────────────────────────────────────
+# ── 사이드바 ─────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 📊 분석 메뉴")
-    page = st.radio(
-        "",
-        ["🏠 개요", "👤 직군 분포 분석", "🗺️ 지역별 분포", "💰 임금 분석", "🏭 노동시장 수요", "📋 결론"],
-        label_visibility="collapsed"
-    )
+    st.markdown("## 📊 직군 분포 분석")
+    st.markdown("**화이트칼라 · 블루칼라**")
     st.markdown("---")
-    st.markdown("**데이터 출처**")
-    st.markdown("- 통계청 경제활동인구조사\n- 통계청 지역별고용조사\n- 고용노동부 직종별사업체노동력조사")
-    st.markdown("**분석 기준**")
-    st.markdown("한국표준직업분류(KSCO) 기준")
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 1: 개요
-# ═══════════════════════════════════════════════════════
-if page == "🏠 개요":
-    st.title("대한민국 노동시장 직군 분포 분석")
-    st.markdown("##### 화이트칼라와 블루칼라를 중심으로 | 통계청·고용노동부 데이터 기반")
+    page = st.radio("", [
+        "🏠  프로젝트 소개",
+        "📊  직군 분포 분석",
+        "🗺   지역별 분포 분석",
+        "💰  임금 분석",
+        "🏭  노동시장 수요 및 인력 수급",
+        "📋  결론 및 시사점"
+    ])
     st.markdown("---")
+    st.markdown("**🔵 화이트칼라**\n관리자 · 전문가 · 사무")
+    st.markdown("**🔴 블루칼라**\n기능원 · 기계조작 · 단순노무")
+    st.markdown("---")
+    st.caption("출처: 통계청 KOSIS · 고용노동부")
 
-    year_col  = '2025'
-    total_val = pd.to_numeric(df_year[df_year['직업별'] == '계'][year_col].values[0], errors='coerce')
-
-    def sum_group(jobs, col):
-        s = 0
-        for j in jobs:
-            v = df_year[df_year['직업별'] == j][col]
-            if not v.empty:
-                s += pd.to_numeric(v.values[0], errors='coerce') or 0
-        return s
-
-    white_sum = sum_group(WHITE_COLLAR, year_col)
-    blue_sum  = sum_group(BLUE_COLLAR,  year_col)
-    other     = total_val - white_sum - blue_sum
-
-    # KPI 카드
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.markdown(f"""<div class="metric-card">
-            <div class="label">전체 취업자 (2025)</div>
-            <div class="value">{total_val/1000:.1f}백만명</div>
-            <div class="sub">({total_val:,.0f}천명)</div>
-        </div>""", unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""<div class="white-card">
-            <div class="card-label">🤍 화이트칼라</div>
-            <div class="card-value">{white_sum:,.0f}천명</div>
-            <div class="card-sub">{white_sum/total_val*100:.1f}% (관리자 제외)</div>
-        </div>""", unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""<div class="blue-card">
-            <div class="card-label">🔧 블루칼라</div>
-            <div class="card-value">{blue_sum:,.0f}천명</div>
-            <div class="card-sub">{blue_sum/total_val*100:.1f}%</div>
-        </div>""", unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""<div class="metric-card">
-            <div class="label">기타 직종</div>
-            <div class="value">{other:,.0f}천명</div>
-            <div class="sub">{other/total_val*100:.1f}%</div>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    col_left, col_right = st.columns([1, 1.6])
-
-    with col_left:
-        st.markdown('<div class="section-title">2025년 직군 비중 (관리자 제외)</div>', unsafe_allow_html=True)
-        fig_donut = go.Figure(go.Pie(
-            labels=['화이트칼라', '블루칼라', '기타'],
-            values=[white_sum, blue_sum, other],
-            hole=0.55,
-            marker_colors=['#2563eb', '#d97706', '#94a3b8'],
-            textinfo='label+percent', textfont_size=13,
-        ))
-        fig_donut.update_layout(
-            height=360, margin=dict(t=20, b=20, l=20, r=20),
-            showlegend=False,
-            annotations=[dict(text=f'{white_sum/total_val*100:.0f}%<br>화이트',
-                              x=0.5, y=0.5, font_size=16, showarrow=False, font_color='#2563eb')]
-        )
-        st.plotly_chart(fig_donut, use_container_width=True)
-
-    with col_right:
-        st.markdown('<div class="section-title">연도별 화·블루칼라 취업자 추이</div>', unsafe_allow_html=True)
-        years = [str(y) for y in range(2016, 2026)]
-        w_vals, b_vals = [], []
-        for y in years:
-            w_vals.append(sum_group(WHITE_COLLAR, y))
-            b_vals.append(sum_group(BLUE_COLLAR,  y))
-
-        fig_trend = go.Figure()
-        fig_trend.add_trace(go.Scatter(x=years, y=w_vals, name='화이트칼라',
-            line=dict(color='#2563eb', width=3), mode='lines+markers', marker=dict(size=7)))
-        fig_trend.add_trace(go.Scatter(x=years, y=b_vals, name='블루칼라',
-            line=dict(color='#d97706', width=3), mode='lines+markers', marker=dict(size=7)))
-        fig_trend.update_layout(
-            height=360, margin=dict(t=20, b=20, l=20, r=40),
-            yaxis_title='취업자 수 (천명)',
-            legend=dict(orientation='h', y=1.05),
-            plot_bgcolor='white', paper_bgcolor='white',
-            yaxis=dict(gridcolor='#f0f0f0'), xaxis=dict(gridcolor='#f0f0f0')
-        )
-        st.plotly_chart(fig_trend, use_container_width=True)
-
-    # 세부 직종별
-    st.markdown('<div class="section-title">2025년 세부 직종별 취업자 현황</div>', unsafe_allow_html=True)
-    detail_jobs   = ['1 관리자', '2 전문가 및 관련 종사자', '3 사무 종사자',
-                     '7 기능원 및 관련 기능종사자', '8 장치,기계조작 및 조립종사자', '9 단순노무 종사자']
-    job_labels    = ['관리자', '전문가 및\n관련종사자', '사무 종사자',
-                     '기능원 및\n관련기능', '장치·기계\n조작·조립', '단순노무']
-    colors        = ['#93c5fd', '#2563eb', '#1d4ed8', '#f59e0b', '#d97706', '#b45309']
-    vals = []
-    for j in detail_jobs:
-        v = df_year[df_year['직업별'] == j]['2025']
-        vals.append(pd.to_numeric(v.values[0], errors='coerce') if not v.empty else 0)
-
-    fig_bar = go.Figure(go.Bar(
-        x=job_labels, y=vals, marker_color=colors,
-        text=[f'{v:,.0f}천명' for v in vals], textposition='outside', textfont_size=12
-    ))
-    fig_bar.update_layout(
-        height=320, margin=dict(t=10, b=10, l=20, r=20),
-        yaxis_title='취업자 수 (천명)',
-        plot_bgcolor='white', paper_bgcolor='white',
-        yaxis=dict(gridcolor='#f0f0f0'), showlegend=False
-    )
-    st.plotly_chart(fig_bar, use_container_width=True)
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 2: 직군 분포 분석 (연령·학력)
-# ═══════════════════════════════════════════════════════
-elif page == "👤 직군 분포 분석":
-    st.title("직군 분포 분석")
-    st.markdown("연령과 학력에 따른 화이트칼라·블루칼라 분포 차이를 분석합니다.")
+# ══════════════════════════════════════════════════════════════
+# 페이지 1. 프로젝트 소개
+# ══════════════════════════════════════════════════════════════
+if page == "🏠  프로젝트 소개":
+    st.title("대한민국 노동시장의 직군 분포와\n인력 수급 특성 분석")
+    st.markdown("#### — 화이트칼라와 블루칼라를 중심으로 —")
     st.markdown("---")
 
-    target_period = '2024.1/2'
-    period_indices = [i for i, c in enumerate(col_labels) if c == target_period]
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        card("🎯 주제 선정 이유",
+             "과거에는 화이트칼라 직종이 선호되는 경향이 강했지만, 최근 반도체·정유·생산기술직 등 "
+             "고임금 기술직이 주목받으면서 블루칼라 직군에 대한 인식도 변화하고 있다. "
+             "일부 산업에서는 지속적인 인력 부족 현상이 발생하고 있어 객관적인 데이터 분석이 필요하다.",
+             '#58a6ff')
+    with col2:
+        card("❓ 문제 제기",
+             "사회적 인식과 달리 실제 노동시장에서는 화이트칼라와 블루칼라가 어떻게 분포되어 있는가? "
+             "각 직군은 지역, 성별, 임금 수준 측면에서 어떠한 차이를 보이며, "
+             "어떤 직군에서 인력 부족 현상이 나타나고 있는가?",
+             '#e3b341')
+    with col3:
+        card("🎯 분석 목표",
+             "① 직군별 분포 분석<br>"
+             "② 지역별 분포 차이 분석<br>"
+             "③ 성별 직군 특성 분석<br>"
+             "④ 직군별 임금 수준 비교<br>"
+             "⑤ 노동시장 인력 수요 분석<br>"
+             "⑥ 미충원율 기반 인력 부족 분석",
+             '#3fb950')
 
-    if period_indices:
-        start_idx = period_indices[0]
-
-        target_rows = {
-            '화이트칼라\n(전문가·관련종사자)': '전문가 및 관련 종사자',
-            '화이트칼라\n(사무종사자)':        '사무 종사자',
-            '블루칼라\n(기능원·관련기능)':     '기능원 및 관련 기능 종사자',
-            '블루칼라\n(장치·기계조작)':       '장치·기계 조작 및 조립 종사자',
-            '블루칼라\n(단순노무)':            '단순노무 종사자',
-        }
-        age_cols_name = ['15~29세', '30~39세', '40~49세', '50~59세', '60세 이상']
-        edu_cols_name = ['중졸이하', '고졸', '대졸이상']
-
-        age_data, edu_data = [], []
-        for label, row_name in target_rows.items():
-            row_match = raw_edu[raw_edu.iloc[:, 0] == row_name]
-            if row_match.empty:
-                continue
-            row_vals = row_match.iloc[0, start_idx:start_idx+9].tolist()
-            for i, ag in enumerate(age_cols_name):
-                v = pd.to_numeric(row_vals[i+1], errors='coerce')
-                age_data.append({'직종': label, '연령대': ag, '취업자': v or 0})
-            for i, ec in enumerate(edu_cols_name):
-                v = pd.to_numeric(row_vals[i+6], errors='coerce')
-                edu_data.append({'직종': label, '학력': ec, '취업자': v or 0})
-
-        df_age      = pd.DataFrame(age_data)
-        df_edu_chart = pd.DataFrame(edu_data)
-
-        # 연령별 100% 누적 막대
-        st.markdown('<div class="section-title">연령대별 직종 분포 (2024년 상반기)</div>', unsafe_allow_html=True)
-        age_pivot = df_age.pivot_table(index='연령대', columns='직종', values='취업자', aggfunc='sum').fillna(0)
-        age_pct   = age_pivot.div(age_pivot.sum(axis=1), axis=0) * 100
-        age_order = ['15~29세', '30~39세', '40~49세', '50~59세', '60세 이상']
-        age_pct   = age_pct.reindex([a for a in age_order if a in age_pct.index])
-
-        colors_stack = ['#1d4ed8', '#2563eb', '#f59e0b', '#d97706', '#b45309']
-        fig_age = go.Figure()
-        for col, color in zip(age_pct.columns, colors_stack):
-            fig_age.add_trace(go.Bar(
-                name=col, x=age_pct.index, y=age_pct[col],
-                marker_color=color,
-                text=[f'{v:.1f}%' for v in age_pct[col]],
-                textposition='inside', textfont_size=11
-            ))
-        fig_age.update_layout(
-            barmode='stack', height=380,
-            yaxis_title='비율 (%)', xaxis_title='연령대',
-            legend=dict(orientation='h', y=-0.25, font_size=11),
-            plot_bgcolor='white', paper_bgcolor='white',
-            margin=dict(t=10, b=80, l=20, r=20)
-        )
-        st.plotly_chart(fig_age, use_container_width=True)
-
-        # 학력별 그룹 막대그래프
-        st.markdown('<div class="section-title">학력별 직종 취업자 분포 (2024년 상반기)</div>', unsafe_allow_html=True)
-
-        df_edu_chart['구분']    = df_edu_chart['직종'].apply(lambda x: '화이트칼라' if '화이트' in x else '블루칼라')
-        df_edu_chart['직종단순'] = df_edu_chart['직종'].str.replace('\n', ' ')
-
-        edu_order = ['중졸이하', '고졸', '대졸이상']
-        job_colors = {
-            '화이트칼라 (전문가·관련종사자)': '#1d4ed8',
-            '화이트칼라 (사무종사자)':        '#2563eb',
-            '블루칼라 (기능원·관련기능)':     '#f59e0b',
-            '블루칼라 (장치·기계조작)':       '#d97706',
-            '블루칼라 (단순노무)':            '#b45309',
-        }
-
-        fig_edu = go.Figure()
-        for job_name in df_edu_chart['직종단순'].unique():
-            sub = df_edu_chart[df_edu_chart['직종단순'] == job_name]
-            sub = sub.set_index('학력').reindex(edu_order).reset_index()
-            fig_edu.add_trace(go.Bar(
-                name=job_name,
-                x=sub['학력'],
-                y=sub['취업자'],
-                marker_color=job_colors.get(job_name, '#888'),
-                text=[f'{v:,.0f}천명' for v in sub['취업자']],
-                textposition='outside',
-                textfont_size=10,
-            ))
-
-        fig_edu.update_layout(
-            barmode='group', height=420,
-            margin=dict(t=10, b=20, l=20, r=20),
-            yaxis_title='취업자 수 (천명)',
-            xaxis_title='학력',
-            legend=dict(orientation='h', y=-0.3, font_size=11),
-            plot_bgcolor='white', paper_bgcolor='white',
-            yaxis=dict(gridcolor='#f0f0f0'),
-        )
-        st.plotly_chart(fig_edu, use_container_width=True)
-
-    else:
-        st.warning("2024.1/2 기간 데이터를 찾을 수 없습니다.")
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 3: 지역별 분포
-# ═══════════════════════════════════════════════════════
-elif page == "🗺️ 지역별 분포":
-    st.title("지역별 직군 분포 분석")
-    st.markdown("17개 시도별 화이트칼라·블루칼라 취업자 비중을 비교합니다.")
     st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        card("🔵 화이트칼라 분류 (KSCO 기준)",
+             "• 관리자<br>• 전문가 및 관련 종사자<br>• 사무 종사자", '#58a6ff')
+    with col2:
+        card("🔴 블루칼라 분류 (KSCO 기준)",
+             "• 기능원 및 관련 기능 종사자<br>• 장치·기계조작 및 조립 종사자<br>• 단순노무 종사자", '#f85149')
 
-    # 최신 컬럼 자동 선택 (2025.2/2 우선, 없으면 마지막 컬럼)
-    avail_year_cols = [c for c in r_years if '2025' in str(c)]
-    target_year = avail_year_cols[-1] if avail_year_cols else r_years[-1]
-
-    sido_list = [s for s in df_region['행정구역'].unique() if s not in ['계', '행정구역별']]
-
-    region_stats = []
-    for sido in sido_list:
-        sub   = df_region[df_region['행정구역'] == sido]
-        total = sub[sub['직업별'] == '계'][target_year].values
-        if len(total) == 0 or np.isnan(total[0]):
-            continue
-        total = total[0]
-
-        def safe_sum(jobs):
-            s = 0
-            for j in jobs:
-                r = sub[sub['직업별'] == j][target_year]
-                if not r.empty and not np.isnan(r.values[0]):
-                    s += r.values[0]
-            return s
-
-        white = safe_sum(WHITE_REGION)
-        blue  = safe_sum(BLUE_REGION)
-
-        if total > 0:
-            region_stats.append({
-                '지역': sido, '전체': total,
-                '화이트칼라': white, '블루칼라': blue,
-                '화이트비율': white / total * 100,
-                '블루비율':   blue  / total * 100,
-            })
-
-    df_rs = pd.DataFrame(region_stats).sort_values('화이트비율', ascending=False)
-
-    c1, c2 = st.columns([1.2, 1])
-
-    with c1:
-        st.markdown('<div class="section-title">지역별 화이트·블루칼라 비율 비교</div>', unsafe_allow_html=True)
-        fig_region = go.Figure()
-        fig_region.add_trace(go.Bar(
-            y=df_rs['지역'], x=df_rs['화이트비율'], orientation='h',
-            name='화이트칼라', marker_color='#2563eb',
-            text=[f'{v:.1f}%' for v in df_rs['화이트비율']], textposition='outside'
-        ))
-        fig_region.add_trace(go.Bar(
-            y=df_rs['지역'], x=df_rs['블루비율'], orientation='h',
-            name='블루칼라', marker_color='#d97706',
-            text=[f'{v:.1f}%' for v in df_rs['블루비율']], textposition='outside'
-        ))
-        fig_region.update_layout(
-            barmode='group', height=520,
-            xaxis_title='비율 (%)',
-            legend=dict(orientation='h', y=1.05),
-            plot_bgcolor='white', paper_bgcolor='white',
-            margin=dict(t=10, b=20, l=10, r=60),
-            yaxis=dict(autorange='reversed')
-        )
-        st.plotly_chart(fig_region, use_container_width=True)
-
-    with c2:
-        st.markdown('<div class="section-title">지역별 취업자 구성 (100% 누적)</div>', unsafe_allow_html=True)
-        df_rs2 = df_rs.copy()
-        df_rs2['기타비율'] = 100 - df_rs2['화이트비율'] - df_rs2['블루비율']
-
-        fig_stack = go.Figure()
-        for col, color, name in [('화이트비율','#2563eb','화이트칼라'),
-                                  ('블루비율','#d97706','블루칼라'),
-                                  ('기타비율','#94a3b8','기타')]:
-            fig_stack.add_trace(go.Bar(
-                y=df_rs2['지역'], x=df_rs2[col], orientation='h',
-                name=name, marker_color=color
-            ))
-        fig_stack.update_layout(
-            barmode='stack', height=520,
-            xaxis_title='비율 (%)',
-            legend=dict(orientation='h', y=1.05),
-            plot_bgcolor='white', paper_bgcolor='white',
-            margin=dict(t=10, b=20, l=10, r=20),
-            yaxis=dict(autorange='reversed')
-        )
-        st.plotly_chart(fig_stack, use_container_width=True)
-
-    st.markdown('<div class="section-title">시도별 상세 현황</div>', unsafe_allow_html=True)
-    disp = df_rs[['지역','전체','화이트칼라','블루칼라','화이트비율','블루비율']].copy()
-    disp.columns = ['지역','전체(천명)','화이트칼라(천명)','블루칼라(천명)','화이트비율(%)','블루비율(%)']
-    disp['화이트비율(%)'] = disp['화이트비율(%)'].round(1)
-    disp['블루비율(%)']   = disp['블루비율(%)'].round(1)
-    st.dataframe(disp.set_index('지역'), use_container_width=True)
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 4: 임금 분석
-# ═══════════════════════════════════════════════════════
-elif page == "💰 임금 분석":
-    st.title("직군별 임금 분석")
-    st.markdown("화이트칼라와 블루칼라의 월임금총액을 비교합니다.")
     st.markdown("---")
-
-    mode = st.radio("분석 모드", ["관리자 제외", "관리자 포함"], horizontal=True)
-    df_w = df_wage_excl if mode == "관리자 제외" else df_wage_incl
-
-    white_jobs_wage = ['전문가 및 관련종사자(2)', '사무 종사자(3)']
-    blue_jobs_wage  = ['기능원 및 관련 기능 종사자(7)', '장치·기계 조작 및 조립 종사자(8)', '단순노무 종사자(9)']
-    if mode == "관리자 포함":
-        white_jobs_wage = ['관리자(1)'] + white_jobs_wage
-
-    years_wage = ['2020', '2021', '2022', '2023', '2024', '2025']
-    all_wage_jobs = white_jobs_wage + blue_jobs_wage
-
-    wage_colors = {
-        '관리자(1)':                      '#93c5fd',
-        '전문가 및 관련종사자(2)':          '#2563eb',
-        '사무 종사자(3)':                  '#1d4ed8',
-        '기능원 및 관련 기능 종사자(7)':    '#fbbf24',
-        '장치·기계 조작 및 조립 종사자(8)': '#d97706',
-        '단순노무 종사자(9)':              '#b45309',
-    }
-    short_names = {
-        '관리자(1)':                      '관리자',
-        '전문가 및 관련종사자(2)':          '전문가',
-        '사무 종사자(3)':                  '사무',
-        '기능원 및 관련 기능 종사자(7)':    '기능원',
-        '장치·기계 조작 및 조립 종사자(8)': '장치·기계',
-        '단순노무 종사자(9)':              '단순노무',
-    }
-
-    st.markdown('<div class="section-title">연도별 월임금총액 추이 (천원)</div>', unsafe_allow_html=True)
-    fig_wage = go.Figure()
-    for job in all_wage_jobs:
-        row = df_w[df_w['직종별'] == job]
-        if row.empty:
-            continue
-        vals_w = [pd.to_numeric(row[y].values[0], errors='coerce') for y in years_wage]
-        fig_wage.add_trace(go.Scatter(
-            x=years_wage, y=vals_w,
-            name=short_names.get(job, job),
-            line=dict(color=wage_colors.get(job, '#888'), width=2.5),
-            mode='lines+markers', marker=dict(size=7)
-        ))
-    fig_wage.update_layout(
-        height=400, margin=dict(t=10, b=10, l=20, r=20),
-        yaxis_title='월임금총액 (천원)',
-        legend=dict(orientation='h', y=-0.2),
-        plot_bgcolor='white', paper_bgcolor='white',
-        yaxis=dict(gridcolor='#f0f0f0'), xaxis=dict(gridcolor='#f0f0f0')
-    )
-    st.plotly_chart(fig_wage, use_container_width=True)
-
-    st.markdown('<div class="section-title">2025년 직종별 월임금총액 비교</div>', unsafe_allow_html=True)
-    wage_2025 = []
-    for job in all_wage_jobs:
-        row = df_w[df_w['직종별'] == job]
-        if row.empty:
-            continue
-        v = pd.to_numeric(row['2025'].values[0], errors='coerce')
-        wage_2025.append({'직종': short_names.get(job, job), '임금': v,
-                          '구분': '화이트칼라' if job in white_jobs_wage else '블루칼라'})
-
-    df_w25 = pd.DataFrame(wage_2025).sort_values('임금', ascending=False)
-    fig_w25 = go.Figure(go.Bar(
-        x=df_w25['직종'], y=df_w25['임금'],
-        marker_color=['#2563eb' if g == '화이트칼라' else '#d97706' for g in df_w25['구분']],
-        text=[f'{v:,.0f}천원' for v in df_w25['임금']],
-        textposition='outside', textfont_size=12
-    ))
-    fig_w25.update_layout(
-        height=380, margin=dict(t=10, b=10, l=20, r=20),
-        yaxis_title='월임금총액 (천원)',
-        plot_bgcolor='white', paper_bgcolor='white',
-        yaxis=dict(gridcolor='#f0f0f0'), showlegend=False
-    )
-    st.plotly_chart(fig_w25, use_container_width=True)
-
-    st.markdown('<div class="section-title">전직종 평균 대비 임금 비율 (2025년)</div>', unsafe_allow_html=True)
-    avg_row = df_w[df_w['직종별'] == '전직종']
-    if not avg_row.empty:
-        avg_wage = pd.to_numeric(avg_row['2025'].values[0], errors='coerce')
-        df_w25['평균대비'] = df_w25['임금'] / avg_wage * 100
-        fig_ratio = go.Figure(go.Bar(
-            x=df_w25['직종'], y=df_w25['평균대비'],
-            marker_color=['#2563eb' if g == '화이트칼라' else '#d97706' for g in df_w25['구분']],
-            text=[f'{v:.1f}%' for v in df_w25['평균대비']], textposition='outside'
-        ))
-        fig_ratio.add_hline(y=100, line_dash='dash', line_color='red', annotation_text='전직종 평균(100%)')
-        fig_ratio.update_layout(
-            height=320, margin=dict(t=10, b=10, l=20, r=20),
-            yaxis_title='전직종 평균 대비 (%)',
-            plot_bgcolor='white', paper_bgcolor='white',
-            yaxis=dict(gridcolor='#f0f0f0'),
-        )
-        st.plotly_chart(fig_ratio, use_container_width=True)
-        st.caption(f"* 전직종 평균 임금 기준: {avg_wage:,.0f}천원 (2025년)")
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 5: 노동시장 수요 및 인력 부족
-# ═══════════════════════════════════════════════════════
-elif page == "🏭 노동시장 수요":
-    st.title("노동시장 수요 및 인력 부족 분석")
-    st.markdown("직종별 구인인원과 미충원율을 통해 인력 부족 현황을 파악합니다.")
-    st.markdown("---")
-
-    df_jd_nation = df_jd[(df_jd['시도별'] == '전국') & (df_jd['규모별'] == '전규모(1인이상)')].copy()
-    df_jd_nation['직종명'] = df_jd_nation['직종별'].str.replace(r'^\d+ ', '', regex=True)
-
-    # 최신 기간 컬럼 자동 탐색
-    recruit_cols_all = [c for c in df_jd_nation.columns if '구인인원' in c]
-    rate_cols_all    = [c for c in df_jd_nation.columns if '부족률'   in c]
-    unfill_cols_all  = [c for c in df_jd_nation.columns if '미충원인원' in c]
-
-    recruit_col = recruit_cols_all[-1] if recruit_cols_all else None
-    rate_col    = rate_cols_all[-1]    if rate_cols_all    else None
-    unfill_col  = unfill_cols_all[-1]  if unfill_cols_all  else None
-
-    if recruit_col:
-        for c in [recruit_col, unfill_col, rate_col]:
-            if c:
-                df_jd_nation[c] = pd.to_numeric(df_jd_nation[c], errors='coerce')
-
-        white_kw = ['경영', '연구', '교육', '보건', '예술']
-        def get_color(job):
-            return '#2563eb' if any(kw in job for kw in white_kw) else '#d97706'
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f'<div class="section-title">직종별 구인인원 ({recruit_col.split("_")[0]})</div>', unsafe_allow_html=True)
-            df_recruit = df_jd_nation.sort_values(recruit_col, ascending=True)
-            fig_recruit = go.Figure(go.Bar(
-                x=df_recruit[recruit_col], y=df_recruit['직종명'], orientation='h',
-                marker_color=[get_color(j) for j in df_recruit['직종명']],
-                text=[f'{v:,.0f}명' for v in df_recruit[recruit_col]], textposition='outside',
-            ))
-            fig_recruit.update_layout(
-                height=380, margin=dict(t=10, b=10, l=10, r=80),
-                xaxis_title='구인인원 (명)',
-                plot_bgcolor='white', paper_bgcolor='white',
-                xaxis=dict(gridcolor='#f0f0f0')
-            )
-            st.plotly_chart(fig_recruit, use_container_width=True)
-
-        with c2:
-            st.markdown(f'<div class="section-title">직종별 미충원율 ({rate_col.split("_")[0]})</div>', unsafe_allow_html=True)
-            df_rate = df_jd_nation.sort_values(rate_col, ascending=True)
-            fig_rate = go.Figure(go.Bar(
-                x=df_rate[rate_col], y=df_rate['직종명'], orientation='h',
-                marker_color=[get_color(j) for j in df_rate['직종명']],
-                text=[f'{v:.1f}%' for v in df_rate[rate_col]], textposition='outside',
-            ))
-            fig_rate.update_layout(
-                height=380, margin=dict(t=10, b=10, l=10, r=60),
-                xaxis_title='미충원율 (%)',
-                plot_bgcolor='white', paper_bgcolor='white',
-                xaxis=dict(gridcolor='#f0f0f0')
-            )
-            st.plotly_chart(fig_rate, use_container_width=True)
-
-        # 히트맵
-        st.markdown('<div class="section-title">연도별 직종별 미충원율 히트맵</div>', unsafe_allow_html=True)
-        period_labels = [c.replace('_부족률 (%)', '') for c in rate_cols_all]
-        heat_data = []
-        for _, row in df_jd_nation.iterrows():
-            vals = [pd.to_numeric(row.get(c, None), errors='coerce') for c in rate_cols_all]
-            heat_data.append(vals)
-
-        job_names = df_jd_nation['직종명'].tolist()
-        fig_heat = go.Figure(go.Heatmap(
-            z=heat_data, x=period_labels, y=job_names,
-            colorscale='RdYlGn_r',
-            text=[[f'{v:.1f}%' if not np.isnan(v) else '' for v in row] for row in heat_data],
-            texttemplate='%{text}', textfont_size=10,
-            colorbar_title='미충원율(%)'
-        ))
-        fig_heat.update_layout(
-            height=420, margin=dict(t=10, b=10, l=20, r=20),
-            xaxis_title='기간',
-            plot_bgcolor='white', paper_bgcolor='white',
-        )
-        st.plotly_chart(fig_heat, use_container_width=True)
-
-    else:
-        st.error("구인인원 컬럼을 찾을 수 없습니다.")
-        st.write(df_jd_nation.columns.tolist())
-
-
-# ═══════════════════════════════════════════════════════
-# PAGE 6: 결론
-# ═══════════════════════════════════════════════════════
-elif page == "📋 결론":
-    st.title("분석 결론")
-    st.markdown("---")
-
+    st.markdown("### 📋 분석 흐름")
     items = [
-        ("화이트칼라와 블루칼라 분포 현황",
-         "2025년 기준 전체 취업자 중 화이트칼라(전문가·사무직)는 약 47%, 블루칼라(기능원·기계조작·단순노무)는 약 30%를 차지한다. "
-         "관리자를 포함할 경우 화이트칼라 비중이 더 높아지지만, 관리자는 소수 고임금 직종으로 별도 분석이 필요하다."),
-        ("연령 및 학력 특성",
-         "화이트칼라는 20~40대 대졸 이상 인력이 중심을 이루는 반면, "
-         "블루칼라는 40대 이상 고졸 이하 인력 비중이 높게 나타난다. "
-         "이는 고령화에 따른 블루칼라 인력 수급 문제와 연결된다."),
-        ("지역별 차이",
-         "서울·대전 등 행정·금융 중심 도시는 화이트칼라 비율이 높고, "
-         "경남·울산·충남 등 제조업 집중 지역은 블루칼라 비율이 상대적으로 높다."),
-        ("임금 수준 비교",
-         "화이트칼라의 월임금총액은 전직종 평균 대비 높은 수준이며, "
-         "특히 전문가 직종의 임금 상승세가 두드러진다. "
-         "고숙련 블루칼라의 임금 경쟁력도 증가하는 추세를 보인다."),
-        ("노동시장 수요",
-         "구인인원 기준으로는 서비스·판매·운전 관련직의 수요가 높고, "
-         "기술·공학직도 지속적으로 높은 구인 수요를 보인다."),
-        ("인력 부족 현황",
-         "미충원율은 건설·채굴직, 설치·정비·생산직에서 지속적으로 높게 나타나 "
-         "블루칼라 일부 직종의 인력 부족 현상이 구조적임을 시사한다."),
+        ("📊", "직군 분포", "전국 비율 및 추이"),
+        ("🗺", "지역별 분포", "시도별 차이"),
+        ("💰", "임금 분석", "직종별 임금 비교"),
+        ("🏭", "인력 수급", "구인·미충원 분석"),
+        ("📋", "결론", "종합 시사점"),
     ]
-
-    for i, (title, content) in enumerate(items, 1):
-        with st.expander(f"**{i}. {title}**", expanded=True):
-            st.markdown(content)
+    cols = st.columns(len(items))
+    for i, (icon, title, desc) in enumerate(items):
+        with cols[i]:
+            st.markdown(
+                f'<div style="background:#161b22;border:1px solid #30363d;border-radius:8px;'
+                f'padding:14px;text-align:center;">'
+                f'<div style="font-size:28px;">{icon}</div>'
+                f'<div style="color:#e6edf3;font-size:12px;font-weight:bold;margin:6px 0;">{title}</div>'
+                f'<div style="color:#6e7681;font-size:11px;">{desc}</div></div>',
+                unsafe_allow_html=True
+            )
 
     st.markdown("---")
-    st.markdown("""
-### 최종 결론
-대한민국 노동시장은 직군별로 **뚜렷한 연령·학력·지역·임금 차이**를 보이며,
-일부 블루칼라 직종에서는 **지속적인 인력 부족**이 구조적으로 나타나고 있다.
-화이트칼라 선호 경향이 사회 전반에 존재하지만,
-실제 데이터는 고숙련 블루칼라 직종의 **임금 경쟁력 상승**과 함께
-수급 불균형이 심화되고 있음을 보여준다.
+    st.markdown("### 🗂 사용 데이터")
+    data_rows = [
+        ("직업별 취업자 수 (연도별)", "통계청 경제활동인구조사", "2016~2025"),
+        ("성별 직업별 취업자 수", "통계청 경제활동인구조사", "2016~2025"),
+        ("시도별 직업별 취업자 수", "통계청 지역별고용조사", "2015~2025"),
+        ("직종별 월임금총액", "고용노동부 고용형태별근로실태조사", "2020~2025"),
+        ("직업별 연령·학력별 취업자", "통계청 지역별고용조사", "2014~2024"),
+        ("직종별 구인인원 및 미충원율", "고용노동부 직종별사업체노동력조사", "2021~2025"),
+    ]
+    for name, src, period in data_rows:
+        st.markdown(
+            f'<div style="background:#161b22;border:1px solid #30363d;border-radius:6px;'
+            f'padding:10px 16px;margin:4px 0;">'
+            f'<span style="color:#e6edf3;font-size:13px;">📁 {name}</span>'
+            f'<span style="color:#8b949e;font-size:12px;float:right;">{src} | {period}</span></div>',
+            unsafe_allow_html=True
+        )
 
-> *데이터 출처: 통계청 경제활동인구조사·지역별고용조사, 고용노동부 직종별사업체노동력조사*
-    """)
+# ══════════════════════════════════════════════════════════════
+# 페이지 2. 직군 분포 분석
+# ══════════════════════════════════════════════════════════════
+elif page == "📊  직군 분포 분석":
+    st.title("📊 직군 분포 분석")
+    st.markdown("**대한민국 노동자는 화이트칼라와 블루칼라 중 어디에 더 많이 분포하는가?**")
+    st.markdown("---")
+
+    df, year_cols, job_col = load_yearly()
+    df_g, year_cols_g = load_gender()
+
+    wr = df[df[job_col].isin(WHITE_JOBS)]
+    br = df[df[job_col].isin(BLUE_JOBS)]
+    tr = df[df[job_col]=='계']
+
+    # 연도 슬라이더
+    selected = st.select_slider("📅 기준 연도 선택", options=year_cols, value=year_cols[-1])
+
+    wv = wr[selected].astype(float).sum()
+    bv = br[selected].astype(float).sum()
+    tv = float(tr[selected].values[0])
+    ov = tv - wv - bv
+
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("전체 취업자", f"{tv/10000:.1f}만명", f"{selected}년")
+    c2.metric("🔵 화이트칼라", f"{wv/tv*100:.1f}%", f"{wv:.0f}천명")
+    c3.metric("🔴 블루칼라", f"{bv/tv*100:.1f}%", f"{bv:.0f}천명")
+    c4.metric("기타 직종", f"{ov/tv*100:.1f}%", f"{ov:.0f}천명")
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"#### 직군별 비율 ({selected}년) — 도넛 차트")
+        pie = pd.DataFrame({'직군':['화이트칼라','블루칼라','기타'], '취업자':[wv,bv,ov]})
+        fig = px.pie(pie, values='취업자', names='직군', hole=0.52,
+                     color='직군', color_discrete_map={'화이트칼라':CW,'블루칼라':CB,'기타':CO})
+        fig.update_traces(textposition='outside', textinfo='percent+label',
+                          textfont=dict(color='#e6edf3'))
+        fig.update_layout(**LAYOUT, height=360, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+        insight(f"블루칼라 {bv/tv*100:.1f}% ({bv:.0f}천명) — 전체 취업자의 약 {bv/tv*100:.0f}% 차지")
+
+    with col2:
+        st.markdown("#### 연도별 취업자 추이 — Line Chart")
+        trend = [{'연도':y,'화이트칼라':wr[y].astype(float).sum(),'블루칼라':br[y].astype(float).sum()} for y in year_cols]
+        tdf = pd.DataFrame(trend)
+        fig2 = go.Figure()
+        fig2.add_vline(x='2022', line_dash='dash', line_color='#e3b341', line_width=1.5,
+                       annotation_text='2022 ChatGPT', annotation_font_color='#e3b341',
+                       annotation_position='top right')
+        fig2.add_trace(go.Scatter(x=tdf['연도'], y=tdf['화이트칼라'], name='화이트칼라',
+                                  line=dict(color=CW,width=3), mode='lines+markers',
+                                  fill='tozeroy', fillcolor='rgba(88,166,255,0.1)'))
+        fig2.add_trace(go.Scatter(x=tdf['연도'], y=tdf['블루칼라'], name='블루칼라',
+                                  line=dict(color=CB,width=3), mode='lines+markers',
+                                  fill='tozeroy', fillcolor='rgba(248,81,73,0.1)'))
+        fig2.update_layout(**LAYOUT, height=360, xaxis_title='연도', yaxis_title='취업자 수 (천명)')
+        st.plotly_chart(fig2, use_container_width=True)
+        insight("화이트칼라는 꾸준히 증가, 블루칼라는 완만하게 감소 추세")
+
+    st.markdown("---")
+    st.markdown("#### 성별 화이트·블루칼라 비율 — 100% 누적 막대")
+    col1, col2 = st.columns(2)
+    for gender, col, label in [('남자',col1,'남성'),('여자',col2,'여성')]:
+        gender_trend = []
+        for y in year_cols_g:
+            sub = df_g[df_g['성별']==gender]
+            w = sub[sub['직업별'].isin(WHITE_JOBS)][y].apply(pd.to_numeric,errors='coerce').sum()
+            b = sub[sub['직업별'].isin(BLUE_JOBS)][y].apply(pd.to_numeric,errors='coerce').sum()
+            t = w+b
+            if t>0:
+                gender_trend.append({'연도':y,'화이트칼라':w/t*100,'블루칼라':b/t*100})
+        gdf = pd.DataFrame(gender_trend)
+        fig3 = go.Figure()
+        fig3.add_trace(go.Bar(name='화이트칼라', x=gdf['연도'], y=gdf['화이트칼라'],
+                              marker_color=CW, text=gdf['화이트칼라'],
+                              texttemplate='%{text:.0f}%', textposition='inside'))
+        fig3.add_trace(go.Bar(name='블루칼라', x=gdf['연도'], y=gdf['블루칼라'],
+                              marker_color=CB, text=gdf['블루칼라'],
+                              texttemplate='%{text:.0f}%', textposition='inside'))
+        fig3.update_layout(**LAYOUT, height=320, barmode='stack',
+                           title=label, title_font_color='#e6edf3',
+                           yaxis_title='비율 (%)', xaxis_title='')
+        with col:
+            st.plotly_chart(fig3, use_container_width=True)
+    insight("남성은 블루칼라 비율이 높고, 여성은 화이트칼라(사무·전문직) 비중이 더 높음", 'red')
+
+# ══════════════════════════════════════════════════════════════
+# 페이지 3. 지역별 분포 분석
+# ══════════════════════════════════════════════════════════════
+elif page == "🗺   지역별 분포 분석":
+    st.title("🗺 지역별 분포 분석")
+    st.markdown("**지역에 따라 화이트칼라와 블루칼라 비중은 어떻게 다른가?**")
+    st.markdown("---")
+
+    df, val_cols = load_region()
+    latest_col = val_cols[-1]
+
+    regions = [r for r in df['행정구역'].unique() if r not in ['행정구역별','계','전국']]
+    result = []
+    for reg in regions:
+        sub = df[df['행정구역']==reg].copy()
+        sub[latest_col] = pd.to_numeric(sub[latest_col], errors='coerce')
+        total_row = sub[sub['직업별']=='계']
+        if total_row.empty: continue
+        total = float(total_row[latest_col].values[0])
+        white = sub[sub['직업별'].isin(WHITE_REGION)][latest_col].sum()
+        blue  = sub[sub['직업별'].isin(BLUE_REGION)][latest_col].sum()
+        if total>0:
+            result.append({'지역':reg,'화이트칼라비율':white/total*100,
+                           '블루칼라비율':blue/total*100,'총취업자':total})
+    rdf = pd.DataFrame(result)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 시도별 블루칼라 비율")
+        fig = px.bar(rdf.sort_values('블루칼라비율',ascending=True),
+                     x='블루칼라비율', y='지역', orientation='h',
+                     color='블루칼라비율',
+                     color_continuous_scale=[[0,'#21262d'],[1,CB]],
+                     text='블루칼라비율')
+        fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
+                          textfont=dict(color='#e6edf3'))
+        fig.update_layout(**LAYOUT, height=520, showlegend=False,
+                          coloraxis_showscale=False,
+                          xaxis_title='블루칼라 비율 (%)', yaxis_title='')
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.markdown("#### 시도별 화이트칼라 비율")
+        fig2 = px.bar(rdf.sort_values('화이트칼라비율',ascending=True),
+                      x='화이트칼라비율', y='지역', orientation='h',
+                      color='화이트칼라비율',
+                      color_continuous_scale=[[0,'#21262d'],[1,CW]],
+                      text='화이트칼라비율')
+        fig2.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
+                           textfont=dict(color='#e6edf3'))
+        fig2.update_layout(**LAYOUT, height=520, showlegend=False,
+                           coloraxis_showscale=False,
+                           xaxis_title='화이트칼라 비율 (%)', yaxis_title='')
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("#### 시도별 화이트 vs 블루칼라 비교 — 로리팝 차트")
+    rdf_s = rdf.sort_values('블루칼라비율', ascending=True)
+    fig3 = go.Figure()
+    for _, row in rdf_s.iterrows():
+        fig3.add_trace(go.Scatter(x=[row['화이트칼라비율'],row['블루칼라비율']],
+                                  y=[row['지역'],row['지역']], mode='lines',
+                                  line=dict(color='#30363d',width=2), showlegend=False))
+    fig3.add_trace(go.Scatter(x=rdf_s['화이트칼라비율'], y=rdf_s['지역'],
+                              mode='markers', name='화이트칼라',
+                              marker=dict(color=CW,size=14,line=dict(color='white',width=1))))
+    fig3.add_trace(go.Scatter(x=rdf_s['블루칼라비율'], y=rdf_s['지역'],
+                              mode='markers', name='블루칼라',
+                              marker=dict(color=CB,size=14,line=dict(color='white',width=1))))
+    fig3.update_layout(**LAYOUT, height=520, xaxis_title='비율 (%)', yaxis_title='')
+    st.plotly_chart(fig3, use_container_width=True)
+    insight("서울·세종은 화이트칼라 집중, 울산·경남·충남은 블루칼라 집중 — 지역 산업 구조 반영", 'red')
+
+# ══════════════════════════════════════════════════════════════
+# 페이지 4. 임금 분석
+# ══════════════════════════════════════════════════════════════
+elif page == "💰  임금 분석":
+    st.title("💰 임금 분석")
+    st.markdown("**화이트칼라와 블루칼라의 임금 수준은 어떤 차이가 있는가?**")
+    st.markdown("---")
+
+    df_inc, df_exc, year_cols = load_wage()
+
+    WAGE_LABEL_INC = {
+        '전직종':'전직종','관리자(1)':'관리자','전문가 및 관련종사자(2)':'전문가',
+        '사무 종사자(3)':'사무종사자','서비스 종사자(4)':'서비스','판매 종사자(5)':'판매',
+        '농림·어업 숙련 종사자(6)':'농림어업','기능원 및 관련기능종사자(7)':'기능원',
+        '장치·기계 조작 및 조립종사자(8)':'기계조작','단순노무 종사자(9)':'단순노무',
+    }
+    WAGE_LABEL_EXC = {
+        '전직종':'전직종','전문가 및 관련종사자(2)':'전문가','사무 종사자(3)':'사무종사자',
+        '서비스 종사자(4)':'서비스','판매 종사자(5)':'판매',
+        '농림·어업 숙련 종사자(6)':'농림어업','기능원 및 관련기능종사자(7)':'기능원',
+        '장치·기계 조작 및 조립종사자(8)':'기계조작','단순노무 종사자(9)':'단순노무',
+    }
+
+    latest_yr = year_cols[-1]
+    target = ['관리자','전문가','사무종사자','기능원','기계조작','단순노무']
+
+    # 관리자 포함 기준
+    inc = df_inc[df_inc['고용형태']=='전체근로자'].copy()
+    inc['직종'] = inc['직종별'].map(WAGE_LABEL_INC).fillna(inc['직종별'])
+    inc[latest_yr] = pd.to_numeric(inc[latest_yr], errors='coerce')
+    wdf = inc[inc['직종'].isin(target)][['직종',latest_yr]].dropna()
+    wdf.columns = ['직종','월임금']
+    wdf['직군'] = wdf['직종'].apply(lambda x:'화이트칼라' if x in ['관리자','전문가','사무종사자'] else '블루칼라')
+
+    w_avg = wdf[wdf['직군']=='화이트칼라']['월임금'].mean()
+    b_avg = wdf[wdf['직군']=='블루칼라']['월임금'].mean()
+
+    c1,c2,c3 = st.columns(3)
+    c1.metric("🔵 화이트칼라 평균", f"{w_avg:,.0f}천원/월", f"{latest_yr}년")
+    c2.metric("🔴 블루칼라 평균", f"{b_avg:,.0f}천원/월", f"{latest_yr}년")
+    c3.metric("월 임금 격차", f"{w_avg-b_avg:,.0f}천원", "화이트 - 블루")
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown(f"#### 직종별 월평균 임금 (관리자 포함, {latest_yr}년)")
+        fig = px.bar(wdf.sort_values('월임금',ascending=True),
+                     x='월임금', y='직종', orientation='h', color='직군',
+                     color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                     text='월임금')
+        fig.update_traces(texttemplate='%{text:,.0f}', textposition='outside',
+                          textfont=dict(color='#e6edf3'))
+        fig.update_layout(**LAYOUT, height=380,
+                          xaxis_title='월임금 (천원)',
+                          yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.markdown("#### 연도별 직군 평균 임금 추이 — Line Chart")
+        line_data = []
+        for yr in year_cols:
+            sub = inc[inc['직종'].isin(target)].copy()
+            sub[yr] = pd.to_numeric(sub[yr], errors='coerce')
+            sub['직군'] = sub['직종'].apply(lambda x:'화이트칼라' if x in ['관리자','전문가','사무종사자'] else '블루칼라')
+            for g in ['화이트칼라','블루칼라']:
+                avg = sub[sub['직군']==g][yr].mean()
+                line_data.append({'연도':yr,'직군':g,'평균임금':avg})
+        ldf = pd.DataFrame(line_data).dropna()
+        fig2 = px.line(ldf, x='연도', y='평균임금', color='직군',
+                       color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                       markers=True, text='평균임금')
+        fig2.update_traces(texttemplate='%{text:,.0f}', textposition='top center',
+                           textfont=dict(color='#e6edf3',size=10))
+        fig2.update_layout(**LAYOUT, height=380, yaxis_title='월평균 임금 (천원)')
+        st.plotly_chart(fig2, use_container_width=True)
+
+    insight(f"월 평균 격차 {w_avg-b_avg:,.0f}천원 — 단, 대기업 생산직은 중소기업 사무직보다 높을 수 있어 주의 필요")
+
+    # 관리자 제외 비교
+    st.markdown("---")
+    st.markdown("#### 관리자 제외 시 임금 비교 (현실적 비교)")
+    exc = df_exc[df_exc['고용형태']=='전체근로자'].copy()
+    exc['직종'] = exc['직종별'].map(WAGE_LABEL_EXC).fillna(exc['직종별'])
+    exc[latest_yr] = pd.to_numeric(exc[latest_yr], errors='coerce')
+    target_exc = ['전문가','사무종사자','기능원','기계조작','단순노무']
+    wdf2 = exc[exc['직종'].isin(target_exc)][['직종',latest_yr]].dropna()
+    wdf2.columns = ['직종','월임금']
+    wdf2['직군'] = wdf2['직종'].apply(lambda x:'화이트칼라' if x in ['전문가','사무종사자'] else '블루칼라')
+
+    w_avg2 = wdf2[wdf2['직군']=='화이트칼라']['월임금'].mean()
+    b_avg2 = wdf2[wdf2['직군']=='블루칼라']['월임금'].mean()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        fig3 = px.bar(wdf2.sort_values('월임금',ascending=True),
+                      x='월임금', y='직종', orientation='h', color='직군',
+                      color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                      text='월임금')
+        fig3.update_traces(texttemplate='%{text:,.0f}', textposition='outside',
+                           textfont=dict(color='#e6edf3'))
+        fig3.update_layout(**LAYOUT, height=320,
+                           xaxis_title='월임금 (천원)',
+                           yaxis={'categoryorder':'total ascending'})
+        st.plotly_chart(fig3, use_container_width=True)
+    with col2:
+        avg_comp = pd.DataFrame({
+            '직군': ['화이트칼라\n(관리자 제외)', '블루칼라'],
+            '평균임금': [w_avg2, b_avg2]
+        })
+        fig4 = px.bar(avg_comp, x='직군', y='평균임금',
+                      color='직군', color_discrete_map={
+                          '화이트칼라\n(관리자 제외)': CW, '블루칼라': CB},
+                      text='평균임금')
+        fig4.update_traces(texttemplate='%{text:,.0f}천원', textposition='outside',
+                           textfont=dict(color='#e6edf3'))
+        fig4.update_layout(**LAYOUT, height=320,
+                           yaxis_title='월평균 임금 (천원)', showlegend=False)
+        st.plotly_chart(fig4, use_container_width=True)
+    insight(f"관리자 제외 시 화이트칼라 {w_avg2:,.0f}천원 vs 블루칼라 {b_avg2:,.0f}천원 — 격차 {w_avg2-b_avg2:,.0f}천원", 'yellow')
+
+# ══════════════════════════════════════════════════════════════
+# 페이지 5. 노동시장 수요 및 인력 수급
+# ══════════════════════════════════════════════════════════════
+elif page == "🏭  노동시장 수요 및 인력 수급":
+    st.title("🏭 노동시장 수요 및 인력 수급")
+    st.markdown("**기업은 어떤 직군을 필요로 하며, 실제로 부족한 직군은 무엇인가?**")
+    st.markdown("---")
+
+    national, val_cols = load_supply()
+    periods = sorted(list(set([c.split('.')[0] for c in val_cols if c.count('/')==1])))
+    latest_p = periods[-1]
+    gu_col = latest_p
+    mi_col = f"{latest_p}.1"
+    bu_col = f"{latest_p}.2"
+
+    sdf = national[national['직종별']!='전직종'].copy()
+    for c in [gu_col, mi_col, bu_col]:
+        sdf[c] = pd.to_numeric(sdf[c], errors='coerce')
+    sdf = sdf.dropna(subset=[gu_col])
+    sdf['직군'] = sdf['직종별'].apply(
+        lambda x: '화이트칼라' if x in WHITE_SUPPLY else '블루칼라'
+    )
+
+    w_gu = sdf[sdf['직군']=='화이트칼라'][gu_col].sum()
+    b_gu = sdf[sdf['직군']=='블루칼라'][gu_col].sum()
+    w_mi = sdf[sdf['직군']=='화이트칼라'][mi_col].sum()
+    b_mi = sdf[sdf['직군']=='블루칼라'][mi_col].sum()
+
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("🔵 화이트칼라 구인", f"{w_gu:,.0f}명")
+    c2.metric("🔴 블루칼라 구인", f"{b_gu:,.0f}명")
+    c3.metric("🔵 화이트칼라 미충원", f"{w_mi:,.0f}명")
+    c4.metric("🔴 블루칼라 미충원", f"{b_mi:,.0f}명")
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 직종별 구인인원")
+        fig = px.bar(sdf.sort_values(gu_col,ascending=True),
+                     x=gu_col, y='직종별', orientation='h', color='직군',
+                     color_discrete_map={'화이트칼라':CW,'블루칼라':CB},
+                     text=gu_col)
+        fig.update_traces(texttemplate='%{text:,.0f}명', textposition='outside',
+                          textfont=dict(color='#e6edf3'))
+        fig.update_layout(**LAYOUT, height=400, xaxis_title='구인인원 (명)', yaxis_title='')
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        st.markdown("#### 직종별 미충원인원")
+        sdf_mi = sdf.dropna(subset=[mi_col]).sort_values(mi_col,ascending=True)
+        fig2 = px.bar(sdf_mi, x=mi_col, y='직종별', orientation='h', color='직군',
+                      color_discrete_map={'화이트칼라':CW,'블루칼라':CB}, text=mi_col)
+        fig2.update_traces(texttemplate='%{text:,.0f}명', textposition='outside',
+                           textfont=dict(color='#e6edf3'))
+        fig2.update_layout(**LAYOUT, height=400, xaxis_title='미충원인원 (명)', yaxis_title='')
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.markdown("---")
+    st.markdown("#### 직종별 부족률 (%)")
+    sdf_bu = sdf.dropna(subset=[bu_col]).sort_values(bu_col,ascending=False)
+    fig3 = px.bar(sdf_bu, x='직종별', y=bu_col,
+                  color=bu_col,
+                  color_continuous_scale=[[0,'#21262d'],[0.5,'#e3b341'],[1,CB]],
+                  text=bu_col)
+    fig3.update_traces(texttemplate='%{text:.1f}%', textposition='outside',
+                       textfont=dict(color='#e6edf3'))
+    fig3.update_layout(**LAYOUT, height=360, xaxis_title='', yaxis_title='부족률 (%)',
+                       coloraxis_showscale=False)
+    st.plotly_chart(fig3, use_container_width=True)
+    insight("설치·정비·생산직 및 건설직은 높은 구인 수요와 미충원이 동시에 발생 — 블루칼라 인력 수급 불균형 심화", 'red')
+
+# ══════════════════════════════════════════════════════════════
+# 페이지 6. 결론 및 시사점
+# ══════════════════════════════════════════════════════════════
+elif page == "📋  결론 및 시사점":
+    st.title("📋 결론 및 시사점")
+    st.markdown("---")
+
+    st.markdown("### 📌 핵심 발견사항")
+    findings = [
+        ("📊", "직군 분포", "#58a6ff",
+         "화이트칼라는 전문가·사무직 중심으로 높은 비중을 차지하고 있으며, "
+         "블루칼라도 제조업 및 생산직을 중심으로 상당한 규모를 유지하고 있다."),
+        ("👥", "성별 특성", "#f778ba",
+         "남성은 블루칼라 직군에 상대적으로 많이 종사하며, "
+         "여성은 사무직 및 전문직 비중이 높게 나타난다."),
+        ("🗺", "지역별 분포", "#3fb950",
+         "서울·경기 등 수도권에서 화이트칼라 비중이 높고, "
+         "제조업 중심 지역(울산·경남·충남)에서는 블루칼라 비중이 높게 나타난다."),
+        ("💰", "임금 수준", "#e3b341",
+         "전문가 직군과 관리자 직군에서 높은 임금 수준을 보이며 직군 간 임금 격차가 존재한다. "
+         "단, 대기업 생산직의 경우 중소기업 사무직보다 높은 경우도 있다."),
+        ("🏭", "노동시장 수요", "#f85149",
+         "설치·정비·생산직과 영업·판매·운송직에서 높은 구인 수요를 보이며, "
+         "특정 기술직에서 인력 부족 현상이 지속되고 있다."),
+        ("⚠️", "인력 수급 불균형", "#bc8cff",
+         "일부 생산직·설비직·기술직은 높은 부족률을 보여 "
+         "노동시장 내 수요와 공급 간 불균형이 존재하는 것으로 확인된다."),
+    ]
+    for i in range(0, len(findings), 2):
+        cols = st.columns(2)
+        for j, col in enumerate(cols):
+            if i+j < len(findings):
+                icon, title, color, desc = findings[i+j]
+                with col:
+                    card(f"{icon} {title}", desc, color)
+
+    st.markdown("---")
+    st.markdown("### 🔍 최종 결론")
+    st.markdown("""
+    <div style='background:linear-gradient(135deg,#161b22,#0d1117);
+    border:1px solid #30363d;border-top:3px solid #58a6ff;
+    border-radius:8px;padding:24px;'>
+    <p style='color:#e6edf3;font-size:14px;line-height:1.9;margin:0;'>
+    대한민국 노동시장은 직군별로 서로 다른 특성을 보이며 지역, 성별, 임금 수준에서 뚜렷한 차이가 나타난다.<br><br>
+    또한 일부 기술직과 생산직에서는 높은 구인 수요와 부족률이 동시에 나타나
+    노동시장 내 수요와 공급 간 불균형이 존재하는 것으로 확인된다.<br><br>
+    본 분석을 통해 화이트칼라와 블루칼라의 실제 분포와 노동시장 구조를 객관적으로 파악할 수 있으며,
+    직군별 인력 수급 특성을 이해하는 데 활용할 수 있다.
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("### 💡 시사점")
+    suggestions = [
+        "기술직 및 생산직 인력 양성 확대 필요",
+        "지역 산업 구조를 고려한 인재 육성 필요",
+        "노동시장 수요를 반영한 직업 교육 강화 필요",
+        "직군별 인력 수급 불균형 완화를 위한 정책 검토 필요",
+    ]
+    cols = st.columns(2)
+    for i, s in enumerate(suggestions):
+        with cols[i%2]:
+            st.markdown(
+                f'<div style="background:#161b22;border:1px solid #3fb950;'
+                f'border-radius:8px;padding:14px 18px;margin:6px 0;">'
+                f'<p style="color:#3fb950;margin:0;font-size:13px;">✅ {s}</p></div>',
+                unsafe_allow_html=True
+            )
