@@ -521,12 +521,12 @@ elif page == "💰  임금 분석":
         fig4.update_layout(**LAYOUT, height=320,
                            yaxis_title='월평균 임금 (천원)', showlegend=False)
         st.plotly_chart(fig4, use_container_width=True)
-    insight(f"관리자 제외 시 화이트칼라 {w_avg2:,.0f}천원 vs 블루칼라 {b_avg2:,.0f}천원 — 격차 {w_avg
+    insight(f"관리자 제외 시 화이트칼라 {w_avg2:,.0f}천원 vs 블루칼라 {b_avg2:,.0f}천원 — 격차 {w_avg2-b_avg2:,.0f}천원", 'yellow')
 
 # ══════════════════════════════════════════════════════════════
 # 페이지 5. 노동시장 수요 및 인력 수급
 # ══════════════════════════════════════════════════════════════
-elif page == "🏭 노동시장 수요 및 인력 수급":
+elif page == "🏭  노동시장 수요 및 인력 수급":
     st.title("🏭 노동시장 수요 및 인력 수급")
     st.markdown("**기업은 어떤 직군을 필요로 하며, 실제로 부족한 직군은 무엇인가?**")
     st.markdown("---")
