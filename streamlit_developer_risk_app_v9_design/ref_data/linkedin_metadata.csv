@@ -1,0 +1,2 @@
+원본파일,총행수,URL키워드매칭합계,사용컬럼,한계
+Kaggle 1.3M LinkedIn Jobs & Skills 2024 - job_skills.csv,1296381,19045,"job_link, job_skills","job_title/연봉/경력/지역 컬럼이 없어 직무별 공고 수는 URL 키워드 기반 추정이며, 핵심 계산이 아닌 참고자료로만 사용"
