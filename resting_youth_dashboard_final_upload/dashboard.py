@@ -19,7 +19,8 @@ st.set_page_config(
 BASE_DIR = Path(__file__).resolve().parent
 YEARS = list(range(2015, 2026))
 
-AVG_INCOME = 271      # 만원, 20대 평균소득 가정값
+AVG_INCOME_GROSS = 271   # 만원, 20대 세전 평균소득 (통계청 2024 임금근로일자리 소득결과)
+AVG_INCOME = 238          # 만원, 세후 추정 (세전 271만원 × 0.88, 4대보험+소득세 약 12% 공제)
 CONSUMPTION = 0.69    # 평균소비성향 가정값
 PENSION_RATE = 0.09   # 국민연금 보험료율
 
@@ -494,10 +495,10 @@ def load_dashboard_data() -> pd.DataFrame:
     data["비경활_증가율"] = (data["전체_비경활"].pct_change() * 100).round(1)
     data["인구_증가율"] = (data["청년_인구"].pct_change() * 100).round(1)
     data["소비공백_억원"] = (
-        data["쉬었음_청년"] * 1000 * AVG_INCOME * 10000 * CONSUMPTION / 1e8
+        data["쉬었음_청년"] * 1000 * AVG_INCOME * 10000 * 12 * CONSUMPTION / 1e8
     ).round(0).astype(int)
     data["연금공백_억원"] = (
-        data["쉬었음_청년"] * 1000 * AVG_INCOME * 10000 * 12 * PENSION_RATE / 1e8
+        data["쉬었음_청년"] * 1000 * AVG_INCOME_GROSS * 10000 * 12 * PENSION_RATE / 1e8
     ).round(0).astype(int)
     # 이전 코드 호환용 컬럼. 화면에서는 '손실' 대신 '공백'을 사용한다.
     data["연금손실_억원"] = data["연금공백_억원"]
@@ -870,7 +871,7 @@ def page_economy() -> None:
     with c1:
         metric_card("2025 청년 소비 공백", f"{latest_consumption:,}억원", f"약 {latest_consumption/10000:.2f}조원", "red")
     with c2:
-        metric_card("1인당 잠재 소비", f"{per_person_consumption:.0f}만원", "271만원 × 0.69", "blue")
+        metric_card("1인당 잠재 소비(연)", f"{per_person_consumption*12:.0f}만원", "세후 238만원 × 12 × 0.69", "blue")
     with c3:
         metric_card("20대 인구 대비 쉬었음", f"{latest_gap_rate:.2f}%", "내수 기여 공백률", "amber")
 
@@ -893,7 +894,7 @@ def page_economy() -> None:
     st.markdown(
         f"""
 <div class="connector">
-    계산식: 쉬었음 청년 수 × {AVG_INCOME}만원 × {CONSUMPTION}<br>
+    계산식: 쉬었음 청년 수 × 238만원(세후) × 12개월 × 0.69<br>
     이 값은 실제 소비 감소액이 아니라, 쉬었음 상태가 아니었다면 발생할 수 있었던 <b>잠재 소비 미실현 규모</b>입니다.
 </div>
 """,
@@ -1050,7 +1051,7 @@ def page_policy() -> None:
     section_header(
         "STEP 5",
         "정책·결론 — 지원 확대보다 재진입 구조 설계",
-        "전체 요약 → 관점별 문제점 → 우수 중소·중견기업 실무경력 인증 우대전형으로 정리합니다.",
+        "전체 요약 → 관점별 문제점 → 정책 방향 순으로 정리합니다.",
     )
 
     latest_consumption = int(df["소비공백_억원"].iloc[-1])
@@ -1117,6 +1118,7 @@ def page_policy() -> None:
         쉬었음 청년이 늘어나면 노동소득이 발생하지 않는 청년이 늘고,
         이는 잠재 소비 여력 약화로 이어질 수 있습니다.
         2025년 잠재 소비 공백은 <span class="policy-highlight-amber">{latest_consumption:,}억원</span>으로 추정됩니다.
+        (세후 238만원 × 12개월 × 소비성향 0.69 기준 추정치)
     </div>
     <ul>
         <li>소득 부재 → 소비 여력 약화</li>
@@ -1138,7 +1140,7 @@ def page_policy() -> None:
     <div class="policy-desc">
         일반적인 취업은 대부분 고용보험 가입으로 이어집니다.
         따라서 중요한 것은 가입 자체보다 <strong>고용보험 피보험 상태가 얼마나 유지되는지</strong>입니다.
-        국민연금 납부 공백 <span class="policy-highlight-purple">{latest_pension:,}억원</span>은 잠재 추정치입니다.
+        국민연금 납부 공백 <span class="policy-highlight-purple">{latest_pension:,}억원</span>은 잠재 추정치입니다. (세전 271만원 × 12개월 × 9% 기준)
     </div>
     <ul>
         <li>취업 지연 → 사회보험 편입 지연</li>
@@ -1288,7 +1290,7 @@ def page_data_limit() -> None:
 <div class="metric-card">
     <div class="label">경제 관점</div>
     <div class="sub">청년 소비 공백 추정액</div>
-    <div style="color:#ffffff; line-height:1.7; margin-top:0.6rem;">쉬었음 청년 수 × {AVG_INCOME}만원 × {CONSUMPTION}</div>
+    <div style="color:#ffffff; line-height:1.7; margin-top:0.6rem;">쉬었음 청년 수 × 238만원(세후) × 12개월 × 0.69</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -1324,9 +1326,10 @@ def page_data_limit() -> None:
 - 실제 손실액이 아니라 잠재 공백 규모의 근사치로 해석해야 합니다.
 
 **[한계 2] 고정값 사용**
-- 평균소득 271만원, 평균소비성향 0.69, 국민연금 보험료율 9%를 전 기간에 동일 적용했습니다.
-- 소비 공백과 국민연금 공백은 쉬었음 청년 수를 금액으로 환산한 추정지표입니다.
-- 재정 파트에는 이를 보완하기 위해 EIS 고용보험 피보험자 수라는 실제 관측자료를 함께 사용했습니다.
+- 소비 공백: 세후 평균소득 238만원(세전 271만원 × 0.88) × 12개월 × 소비성향 0.69 적용
+- 국민연금 공백: 세전 평균소득 271만원 × 12개월 × 9% 적용 (국민연금은 세전 소득 기준)
+- 평균소비성향 0.69는 가계동향조사 전체 평균이며 청년 전용 수치 아님
+- 재정 파트에는 EIS 고용보험 피보험자 수(실제 관측자료)를 함께 사용해 추정치 한계를 보완
 
 **[한계 3] 확산 구조는 인과관계가 아닌 가능성**
 - 노동시장 → 경제 → 재정 흐름은 직접 인과관계 검증이 아니라 구조적 확산 가능성을 보여주는 분석입니다.
