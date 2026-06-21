@@ -484,6 +484,10 @@ def load_dashboard_data() -> pd.DataFrame:
     data["고용보험피보험자_비율"] = (
         data["고용보험피보험자_명"] / (data["청년_인구"] * 1000) * 100
     ).round(1)
+    base_population_2015 = float(data.loc[data["연도"] == 2015, "청년_인구"].iloc[0])
+    data["고용보험피보험자_2015인구기준비율"] = (
+        data["고용보험피보험자_명"] / (base_population_2015 * 1000) * 100
+    ).round(1)
     data["고용보험피보험자_증가율"] = (data["고용보험피보험자_명"].pct_change() * 100).round(1)
 
     data["쉬었음_비율"] = (data["쉬었음_청년"] / data["전체_비경활"] * 100).round(1)
@@ -626,8 +630,8 @@ def hero() -> None:
     <div class="eyebrow">Youth Inactivity Dashboard · 2015—2025</div>
     <h1>쉬었음 청년, 어디까지 퍼지나?</h1>
     <p>
-        20~29세 쉬었음 청년 증가가 <strong>노동시장 밖 체류·기업 미충원 → 생활서비스 흐름 → 사회보험 편입 변화</strong>와
-        어떻게 연결될 수 있는지 단계별 파생지표로 보여줍니다.
+        20~29세 쉬었음 청년 증가가 <strong>기업 미충원과의 연결 실패 → 생활서비스 업종 흐름 → 고용보험 편입 변화</strong>와
+        어떻게 연결될 수 있는지 관측자료와 상대 파생지표로 보여줍니다.
     </p>
 </div>
 """,
@@ -684,7 +688,7 @@ st.sidebar.markdown(
     <div class="side-text">
         쉬었음 청년: <b style="color:#ff4b4b;">{int(latest_value('쉬었음_청년')):,}천명</b><br>
         20대 인구 대비: <b style="color:#f59e0b;">{latest_value('인구대비_쉬었음비율'):.2f}%</b><br>        생활서비스 부담지수: <b style="color:#60a5fa;">{latest_value('청년비활동_생활서비스부담지수'):.1f}</b><br>
-        고용보험 피보험자: <b style="color:#a78bfa;">{latest_value('고용보험피보험자_만명'):.1f}만명</b>
+        2015 인구 기준 피보험자: <b style="color:#a78bfa;">{latest_value('고용보험피보험자_2015인구기준비율'):.1f}%</b>
     </div>
 </div>
 """,
@@ -707,7 +711,7 @@ def page_overview() -> None:
     with c3:
         metric_card("생활서비스 부담지수", f"{latest_value('청년비활동_생활서비스부담지수'):.1f}", "2020=100 기준", "amber")
     with c4:
-        metric_card("20대 고용보험 피보험자", f"{latest_value('고용보험피보험자_만명'):.1f}만명", "2025년 12월 말 기준", "purple")
+        metric_card("2015 인구 기준 피보험자", f"{latest_value('고용보험피보험자_2015인구기준비율'):.1f}%", f"실제 피보험자 {latest_value('고용보험피보험자_만명'):.1f}만명", "purple")
 
     section_header("FLOW", "분석 흐름", "이 대시보드는 한 화면에 모든 차트를 몰아넣지 않고, 왼쪽 사이드바에서 단계별로 넘겨보는 구조입니다.")
     f1, f2, f3, f4, f5 = st.columns(5)
@@ -715,7 +719,7 @@ def page_overview() -> None:
         ("STEP 1", "문제 규모", "쉬었음 청년 수와 20대 인구 흐름 확인"),
         ("STEP 2", "노동시장", "비경활 내 비중과 기업 미충원 배수 확인"),
         ("STEP 3", "경제", "쉬었음 상대규모와 음식점·주점업 생산 흐름 결합"),
-        ("STEP 4", "재정", "고용보험 피보험자와 사회보험 진입률 확인"),
+        ("STEP 4", "재정", "고용보험 피보험자와 인구 감소 보정 비율 확인"),
         ("STEP 5", "정책", "재진입 경로와 사회보험 유지 관점의 대책 정리"),
     ]
     for col, item in zip([f1, f2, f3, f4, f5], flow_items):
@@ -731,7 +735,7 @@ def page_overview() -> None:
                 unsafe_allow_html=True,
             )
 
-    st.markdown('<div class="connector">핵심 논리: 본 대시보드는 20~29세 단일 구간을 기준으로, 쉬었음 청년 증가가 기업 미충원·생활서비스 업종 흐름·사회보험 편입 변화와 어떻게 연결될 수 있는지 파생지표로 재구성합니다. 단, 이는 직접 인과 증명이 아니라 구조적 확산 가능성 분석입니다.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="connector">핵심 논리: 본 대시보드는 20~29세 단일 구간을 기준으로, 쉬었음 청년 증가가 기업 미충원·생활서비스 업종 흐름·고용보험 편입 변화와 어떻게 연결될 수 있는지 파생지표로 재구성합니다. 단, 이는 직접 인과 증명이 아니라 구조적 확산 가능성 분석입니다.</div>', unsafe_allow_html=True)
 
     fig = go.Figure()
     fig.add_trace(
@@ -1069,12 +1073,13 @@ def page_fiscal() -> None:
     hero()
     section_header(
         "STEP 4",
-        "재정 관점 — 청년은 사회보험 체계에 얼마나 진입하고 있는가?",
-        "재정 파트는 임금 가정이 필요한 금액 추정을 제외하고, 실제 관측자료인 20대 고용보험 피보험자 수와 20대 인구 대비 비율을 중심으로 봅니다.",
+        "재정 관점 — 20대의 고용보험 편입 규모는 어떻게 변했는가?",
+        "재정 파트는 임금·보험료 가정이 필요한 금액 추정을 제외하고, 실제 관측자료인 20대 고용보험 피보험자 수와 2015년 인구 기준 보정 비율을 중심으로 봅니다.",
     )
 
     latest_insured_10k = float(df["고용보험피보험자_만명"].iloc[-1])
     latest_entry_rate = float(df["고용보험피보험자_비율"].iloc[-1])
+    latest_fixed_rate = float(df["고용보험피보험자_2015인구기준비율"].iloc[-1])
     insured_2021 = float(df.loc[df["연도"] == 2021, "고용보험피보험자_만명"].iloc[0])
     insured_change = latest_insured_10k - insured_2021
 
@@ -1082,15 +1087,15 @@ def page_fiscal() -> None:
     with c1:
         metric_card("2025 20대 고용보험 피보험자", f"{latest_insured_10k:.1f}만명", "EIS, 2025년 12월 말 기준", "purple")
     with c2:
-        metric_card("고용보험 기준 사회보험 진입률", f"{latest_entry_rate:.1f}%", "20대 인구 대비 피보험자 비율", "blue")
+        metric_card("2015 인구 기준 피보험자", f"{latest_fixed_rate:.1f}%", f"해당연도 인구 기준은 {latest_entry_rate:.1f}%", "blue")
     with c3:
         metric_card("2021년 대비 피보험자 변화", f"{insured_change:+.1f}만명", f"2021년 {insured_2021:.1f}만명 → 2025년 {latest_insured_10k:.1f}만명", "red")
 
     st.markdown(
         """
 <div class="connector">
-    재정 파트의 핵심은 <b>실제 관측자료</b>를 통해 청년의 사회보험 편입 흐름을 보는 것입니다.<br>
-    고용보험 피보험자 수는 실제 가입 규모를 보여주고, 고용보험 기준 사회보험 진입률은 20대 인구 대비 비율을 보여주는 보조지표입니다.
+    재정 파트의 핵심은 <b>실제 관측자료</b>를 통해 청년의 고용보험 편입 규모를 보는 것입니다.<br>
+    해당 연도 인구를 분모로 쓰면 20대 인구 감소 때문에 비율이 좋아 보일 수 있으므로, 보조적으로 2015년 20대 인구를 고정분모로 둔 비율도 함께 봅니다.
 </div>
 """,
         unsafe_allow_html=True,
@@ -1121,20 +1126,20 @@ def page_fiscal() -> None:
         unsafe_allow_html=True,
     )
 
-    fig_entry = go.Figure()
-    fig_entry.add_trace(
+    fig_fixed = go.Figure()
+    fig_fixed.add_trace(
         go.Bar(
             x=df["연도"],
-            y=df["고용보험피보험자_비율"],
+            y=df["고용보험피보험자_2015인구기준비율"],
             marker_color=[PURPLE if y >= 2020 else BLUE for y in df["연도"]],
-            name="고용보험 기준 사회보험 진입률",
+            name="2015년 인구 기준 피보험자 비율",
             hovertemplate="%{x}년: %{y:.1f}%<extra></extra>",
         )
     )
-    fig_entry.add_trace(
+    fig_fixed.add_trace(
         go.Scatter(
             x=df["연도"],
-            y=df["고용보험피보험자_비율"],
+            y=df["고용보험피보험자_2015인구기준비율"],
             mode="lines+markers",
             line=dict(color=TEXT, width=2, dash="dot"),
             marker=dict(size=6),
@@ -1142,20 +1147,19 @@ def page_fiscal() -> None:
             hovertemplate="%{x}년: %{y:.1f}%<extra></extra>",
         )
     )
-    add_covid_band(fig_entry)
-    fig_entry.update_layout(**base_layout("20대 인구 대비 고용보험 피보험자 비율", "비율 (%)"))
+    add_covid_band(fig_fixed)
+    fig_fixed.update_layout(**base_layout("2015년 인구 기준 고용보험 피보험자 규모", "비율 (%)"))
     chart_start()
-    st.plotly_chart(fig_entry, use_container_width=True)
+    st.plotly_chart(fig_fixed, use_container_width=True)
     chart_end()
     st.markdown(
-        '<p class="note">※ 수식: 20대 고용보험 피보험자 수 ÷ 20~29세 주민등록인구 × 100. 전체 사회보험 가입률이 아니라 고용보험 기준의 노동시장·사회보험 진입 보조지표입니다.</p>',
+        '<p class="note">※ 수식: 20대 고용보험 피보험자 수 ÷ 2015년 20~29세 주민등록인구 × 100. 인구 감소 효과를 줄이고 피보험자 규모 변화를 보기 위한 보조지표입니다.</p>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<p class="note">※ 이 비율은 20대 인구 감소의 영향을 받습니다. 따라서 비율 상승이 곧바로 사회보험 기반 강화라는 뜻은 아니며, 실제 피보험자 수 추이와 함께 해석해야 합니다.</p>',
+        '<p class="note">※ 이 값은 실제 가입률이 아니라 고정분모 기준 비교지표입니다. 해당 연도 인구 대비 비율은 별도 참고값이며, 발표에서는 실제 피보험자 수와 이 고정분모 지표를 함께 해석합니다.</p>',
         unsafe_allow_html=True,
     )
-
 
 def page_policy() -> None:
     hero()
@@ -1169,6 +1173,7 @@ def page_policy() -> None:
     latest_service_pressure = float(df["청년비활동_생활서비스부담지수"].iloc[-1])
     latest_mismatch = float(df["청년비활동_미충원배수"].iloc[-1])
     latest_entry_rate = float(df["고용보험피보험자_비율"].iloc[-1])
+    latest_fixed_rate = float(df["고용보험피보험자_2015인구기준비율"].iloc[-1])
 
     # ── 1. 전체 요약 ──────────────────────────────────────────
     st.markdown("### 1. 전체 요약")
@@ -1190,7 +1195,7 @@ def page_policy() -> None:
     with s3:
         metric_card("생활서비스 부담지수", f"{latest_service_pressure:.1f}", "2020=100 기준", "amber")
     with s4:
-        metric_card("고용보험 진입률", f"{latest_entry_rate:.1f}%", f"피보험자 {latest_insured:.1f}만명", "purple")
+        metric_card("2015 인구 기준 피보험자", f"{latest_fixed_rate:.1f}%", f"실제 피보험자 {latest_insured:.1f}만명", "purple")
 
     # ── 2. 관점별 문제점 ──────────────────────────────────────
     st.markdown("### 2. 관점별 문제점")
@@ -1247,11 +1252,11 @@ def page_policy() -> None:
     <div class="policy-desc">
         재정 파트는 실제 관측자료인 20대 고용보험 피보험자 수를 중심으로 봤습니다.
         2025년 피보험자는 <span class="policy-highlight-purple">{latest_insured:.1f}만명</span>,
-        고용보험 기준 사회보험 진입률은 <span class="policy-highlight-purple">{latest_entry_rate:.1f}%</span>입니다.
+        2015년 인구 기준 피보험자 비율은 <span class="policy-highlight-purple">{latest_fixed_rate:.1f}%</span>입니다.
     </div>
     <ul>
         <li>취업 지연 → 사회보험 편입 지연 가능성</li>
-        <li>비율은 20대 인구 감소의 영향을 받음</li>
+        <li>해당 연도 인구 기준 비율은 인구 감소의 영향을 받음</li>
         <li>단순 가입 여부보다 3개월·6개월 유지율 중요</li>
         <li>문제 핵심: 첫 일자리 유지 구조의 부족</li>
     </ul>
@@ -1375,7 +1380,8 @@ def page_policy() -> None:
         <strong>20~29세 주민등록인구</strong>: KOSIS 주민등록인구통계, 1세별 20~29세 합산, 단위 천명<br>
         <strong>미충원인원</strong>: 고용노동통계 직종별사업체노동력조사, 전국·전산업·5인 이상, 각 연도 하반기(2/2), 단위 명<br>
         <strong>음식점 및 주점업 서비스업생산지수</strong>: KOSIS 서비스업동향조사, 음식점 및 주점업, 불변지수, 2020=100<br>
-        <strong>20대 고용보험 피보험자 수</strong>: EIS 고용행정통계 월별 피보험자현황, 연령 20~29세, 각 연도 12월 말 기준, 단위 명
+        <strong>20대 고용보험 피보험자 수</strong>: EIS 고용행정통계 월별 피보험자현황, 연령 20~29세, 각 연도 12월 말 기준, 단위 명<br>
+        <strong>2015년 인구 기준 피보험자 비율</strong>: 20대 고용보험 피보험자 수 ÷ 2015년 20~29세 주민등록인구 × 100
     </p>
 </div>
 
@@ -1415,8 +1421,8 @@ def page_data_limit() -> None:
             """
 <div class="metric-card">
     <div class="label">재정 관점</div>
-    <div class="sub">고용보험 기준 사회보험 진입률</div>
-    <div style="color:#ffffff; line-height:1.7; margin-top:0.6rem;">20대 고용보험 피보험자 수 ÷ 20~29세 전체 인구 × 100</div>
+    <div class="sub">2015년 인구 기준 피보험자 비율</div>
+    <div style="color:#ffffff; line-height:1.7; margin-top:0.6rem;">20대 고용보험 피보험자 수 ÷ 2015년 20~29세 인구 × 100</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -1441,8 +1447,8 @@ def page_data_limit() -> None:
 - 음식점·주점업 생산지수는 청년 소비만을 직접 측정한 자료가 아니므로 직접 인과관계로 해석하면 안 됩니다.
 
 **[한계 2] 재정 지표는 고용보험 중심**
-- 재정 파트는 실제 관측 가능한 20대 고용보험 피보험자 수와 20대 인구 대비 비율을 사용했습니다.
-- 고용보험 기준 사회보험 진입률은 20대 인구 감소의 영향을 받기 때문에 실제 피보험자 수와 함께 해석해야 합니다.
+- 재정 파트는 실제 관측 가능한 20대 고용보험 피보험자 수와 2015년 인구 기준 보정 비율을 사용했습니다.
+- 해당 연도 인구 대비 비율은 20대 인구 감소의 영향을 받기 때문에, 발표에서는 실제 피보험자 수와 고정분모 보조지표를 함께 해석합니다.
 
 **[한계 3] 확산 구조는 인과관계가 아닌 가능성**
 - 노동시장 → 경제 → 재정 흐름은 직접 인과관계 검증이 아니라 구조적 확산 가능성을 보여주는 분석입니다.
@@ -1470,3 +1476,4 @@ elif page == "④ 재정":
     page_fiscal()
 elif page == "⑤ 정책·결론":
     page_policy()
+
